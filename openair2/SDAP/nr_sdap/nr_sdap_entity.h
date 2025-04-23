@@ -108,7 +108,7 @@ typedef struct nr_sdap_entity_s {
   int (*qfi2drb_map)(struct nr_sdap_entity_s *entity, uint8_t qfi);
 
   nr_sdap_ul_hdr_t (*sdap_construct_ctrl_pdu)(uint8_t qfi);
-  rb_id_t (*sdap_map_ctrl_pdu)(struct nr_sdap_entity_s *entity, rb_id_t pdcp_entity, int map_type, uint8_t dl_qfi);
+  int (*sdap_map_ctrl_pdu)(struct nr_sdap_entity_s *entity, int map_type, uint8_t dl_qfi);
   void (*sdap_submit_ctrl_pdu)(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_sdap_ul_hdr_t ctrl_pdu);
 
   bool (*tx_entity)(struct nr_sdap_entity_s *entity,
@@ -156,7 +156,7 @@ nr_sdap_ul_hdr_t nr_sdap_construct_ctrl_pdu(uint8_t qfi);
  * 1.) default DRB or 
  * 2.) DRB according to the stored QoS flow to DRB mapping rule
  */
-rb_id_t nr_sdap_map_ctrl_pdu(nr_sdap_entity_t *entity, rb_id_t pdcp_entity, int map_type, uint8_t dl_qfi);
+int nr_sdap_map_ctrl_pdu(nr_sdap_entity_t *entity, int map_type, uint8_t dl_qfi);
 
 /*
  * TS 37.324 5.3 QoS flow to DRB Mapping 
