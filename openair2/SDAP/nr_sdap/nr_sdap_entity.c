@@ -653,6 +653,40 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id)
   return ret;
 }
 
+/** @brief This function gets the relevant SDAP config from the received SDAP-Config */
+sdap_config_t nr_sdap_get_config(const int is_gnb, const NR_SDAP_Config_t *sdap_Config, const int drb_id)
+{
+  DevAssert(sdap_Config);
+  sdap_config_t sdapConfig = {0};
+  sdapConfig.drb_id = drb_id;
+  sdapConfig.sdap_rx = is_sdap_rx(is_gnb, sdap_Config);
+  sdapConfig.sdap_tx = is_sdap_tx(is_gnb, sdap_Config);
+  sdapConfig.defaultDRB = sdap_Config->defaultDRB;
+  // 3GPP TS 38.331 The network sets sdap-HeaderUL to present if the field defaultDRB is set to true
+  if (sdapConfig.defaultDRB && (sdap_Config->sdap_HeaderUL != NR_SDAP_Config__sdap_HeaderUL_present))
+    LOG_D(SDAP, "Received SDAP-Config with defaultDRB but sdap-HeaderUL is not present\n");
+  if (sdap_Config->mappedQoS_FlowsToAdd) {
+    sdapConfig.mappedQFIs2AddCount = sdap_Config->mappedQoS_FlowsToAdd->list.count;
+    DevAssert(sdapConfig.mappedQFIs2AddCount <= SDAP_MAX_QFI);
+    LOG_D(SDAP, "DRB %d: mapped QFIs = %d  \n", sdapConfig.drb_id, sdapConfig.mappedQFIs2AddCount);
+    for (int i = 0; i < sdapConfig.mappedQFIs2AddCount; i++){
+      DevAssert(i < SDAP_MAX_QFI);
+      sdapConfig.mappedQFIs2Add[i] = *sdap_Config->mappedQoS_FlowsToAdd->list.array[i];
+      LOG_D(SDAP, "Captured mappedQoS_FlowsToAdd[%d] from RRC: %ld\n", i, sdapConfig.mappedQFIs2Add[i]);
+    }
+  }
+  sdapConfig.pdusession_id = sdap_Config->pdu_Session;
+  if (sdap_Config->mappedQoS_FlowsToRelease) {
+    sdapConfig.mappedQFIs2ReleaseCount = sdap_Config->mappedQoS_FlowsToRelease->list.count;
+    DevAssert(sdapConfig.mappedQFIs2ReleaseCount <= SDAP_MAX_QFI);
+    for (int i = 0; i < sdapConfig.mappedQFIs2ReleaseCount; i++) {
+      DevAssert(i < SDAP_MAX_QFI);
+      sdapConfig.mappedQFIs2Release[i] = *sdap_Config->mappedQoS_FlowsToRelease->list.array[i];
+    }
+  }
+  return sdapConfig;
+}
+
 /**
  * @brief SDAP Entity reconfiguration at UE according to TS 37.324
  *        and triggered by RRC reconfiguration events according to clause 5.3.5.6.5 of TS 38.331.

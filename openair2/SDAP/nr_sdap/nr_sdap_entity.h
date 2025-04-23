@@ -77,6 +77,18 @@ typedef struct qfi2drb_s {
 
 void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_sdap_ul_hdr_t ctrl_pdu);
 
+typedef struct {
+  int pdusession_id;
+  int drb_id;
+  bool sdap_rx;
+  bool sdap_tx;
+  bool defaultDRB;
+  NR_QFI_t mappedQFIs2Add[SDAP_MAX_QFI];
+  uint8_t mappedQFIs2AddCount;
+  NR_QFI_t mappedQFIs2Release[SDAP_MAX_QFI];
+  uint8_t mappedQFIs2ReleaseCount;
+} sdap_config_t;
+
 typedef struct nr_sdap_entity_s {
   ue_id_t ue_id;
   rb_id_t default_drb;
@@ -179,6 +191,8 @@ nr_sdap_entity_t *new_nr_sdap_entity(int is_gnb,
 
 /* Entity Handling Related Functions */
 nr_sdap_entity_t *nr_sdap_get_entity(ue_id_t ue_id, int pdusession_id);
+
+sdap_config_t nr_sdap_get_config(const int is_gnb, const NR_SDAP_Config_t *sdap_Config, const int drb_id);
 
 void nr_sdap_release_drb(ue_id_t ue_id, int drb_id, int pdusession_id);
 
