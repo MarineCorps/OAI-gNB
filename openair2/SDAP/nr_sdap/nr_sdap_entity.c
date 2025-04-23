@@ -357,27 +357,33 @@ void nr_sdap_qfi2drb_map_del(nr_sdap_entity_t *entity, uint8_t qfi){
 }
 
 /**
- * @brief   maps the QFIs to the default DRB if not mapping rule exists
- * @return  DRB that is mapped to the QFI, 0 if no mapping and no default DRB exists for that QFI
-*/
-rb_id_t nr_sdap_qfi2drb_map(nr_sdap_entity_t *entity, uint8_t qfi){
-  rb_id_t pdcp_entity;
-
-  pdcp_entity = entity->qfi2drb_table[qfi].drb_id;
-
-  if(pdcp_entity){
-    LOG_D(SDAP, "Mapping rule exists for QFI: %u\n", qfi);
-    return pdcp_entity;
-  } else if(entity->default_drb) {
-    LOG_D(SDAP, "Mapping QFI: %u to Default DRB: %ld\n", qfi, entity->default_drb);
-    entity->qfi2drb_map_update(entity, qfi, entity->default_drb, entity->qfi2drb_table[qfi].has_sdap_rx, entity->qfi2drb_table[qfi].has_sdap_tx);
+ * @brief   get the DRB ID mapped to the QFI, for both DL and UL
+ * @return  DRB that is mapped to the QFI
+ *          or the default DRB if no mapping rule exists
+ *          or 0 if no mapping and no default DRB exists for that QFI
+ * @ref     TS 37.324, 5.2.1 Uplink
+ *          If there is no stored QoS flow to DRB mapping rule for the
+ *          QoS flow as specified in the subclause 5.3, and a default DRB is configured,
+ *          map the SDAP SDU to the default DRB else, map the SDAP SDU to the DRB according
+ *          to the stored QoS flow to DRB mapping rule. */
+static int nr_sdap_qfi2drb(nr_sdap_entity_t *entity, uint8_t qfi)
+{
+  /* Fetch DRB ID mapped to QFI */
+  int drb_id = entity->qfi2drb_table[qfi].drb_id;
+  if (drb_id) {
+    /* QoS flow to DRB mapping rule exists, return corresponding DRB ID */
+    LOG_D(SDAP, "Existing QoS flow to DRB mapping rule: QFI %u to DRB %d\n", qfi, drb_id);
+    return drb_id;
+  } else if (entity->default_drb) {
+    /* QoS flow to DRB mapping rule does not exist, map SDAP SDU to default DRB, e.g. return default DRB of the SDAP entity */
+    LOG_D(SDAP, "QoS flow to DRB mapping rule does not exists! mapping SDU to Default DRB: %ld\n", entity->default_drb);
     return entity->default_drb;
   } else {
-    LOG_D(SDAP, "Mapping rule and default DRB do not exist for QFI:%u\n", qfi);
+    /* Note: UE undefined behaviour when neither a default DRB
+       nor a stored QoS flow to DRB mapping rule exists */
+    LOG_E(SDAP, "Mapping rule and default DRB do not exist for QFI:%u\n", qfi);
     return SDAP_MAP_RULE_EMPTY;
   }
-
-  return pdcp_entity;
 }
 
 nr_sdap_ul_hdr_t nr_sdap_construct_ctrl_pdu(uint8_t qfi){
@@ -508,7 +514,7 @@ nr_sdap_entity_t *new_nr_sdap_entity(const int is_gnb, const ue_id_t ue_id, cons
   // QFI to DRB mapping functions pointers
   sdap_entity->qfi2drb_map_update = nr_sdap_qfi2drb_map_update;
   sdap_entity->qfi2drb_map_delete = nr_sdap_qfi2drb_map_del;
-  sdap_entity->qfi2drb_map = nr_sdap_qfi2drb_map;
+  sdap_entity->qfi2drb_map = nr_sdap_qfi2drb;
   sdap_entity->pdusession_sock = -1;
 
   // set default DRB

@@ -105,7 +105,7 @@ typedef struct nr_sdap_entity_s {
 
   void (*qfi2drb_map_update)(struct nr_sdap_entity_s *entity, uint8_t qfi, rb_id_t drb, bool has_sdap_rx, bool has_sdap_tx);
   void (*qfi2drb_map_delete)(struct nr_sdap_entity_s *entity, uint8_t qfi);
-  rb_id_t (*qfi2drb_map)(struct nr_sdap_entity_s *entity, uint8_t qfi);
+  int (*qfi2drb_map)(struct nr_sdap_entity_s *entity, uint8_t qfi);
 
   nr_sdap_ul_hdr_t (*sdap_construct_ctrl_pdu)(uint8_t qfi);
   rb_id_t (*sdap_map_ctrl_pdu)(struct nr_sdap_entity_s *entity, rb_id_t pdcp_entity, int map_type, uint8_t dl_qfi);
@@ -143,17 +143,6 @@ void nr_sdap_qfi2drb_map_update(nr_sdap_entity_t *entity, uint8_t qfi, rb_id_t d
 
 /* QFI to DRB Mapping Related Function */
 void nr_sdap_qfi2drb_map_del(nr_sdap_entity_t *entity, uint8_t qfi);
-
-/*
- * TS 37.324
- * 4.4 Functions
- * Mapping between a QoS flow and a DRB for both DL and UL.
- *
- * 5.2.1 Uplink
- * If there is no stored QoS flow to DRB mapping rule for the QoS flow as specified in the subclause 5.3, map the SDAP SDU to the default DRB
- * else, map the SDAP SDU to the DRB according to the stored QoS flow to DRB mapping rule.
- */
-rb_id_t nr_sdap_qfi2drb_map(nr_sdap_entity_t *entity, uint8_t qfi);
 
 /*
  * TS 37.324 5.3 QoS flow to DRB Mapping 
