@@ -141,6 +141,24 @@ static instance_t get_f1_gtp_instance(void)
   return inst->gtpInst;
 }
 
+/** @brief Add bearer in PDCP/SDAP for 5GC association (SA) */
+static void e1_add_bearers(const int ue_id, const NR_DRB_ToAddModList_t *addMod, const nr_pdcp_entity_security_keys_and_algos_t *sp)
+{
+  for (int i = 0; i < addMod->list.count; i++) {
+    NR_DRB_ToAddMod_t *drb = addMod->list.array[i];
+    DevAssert(drb->cnAssociation);
+    DevAssert(drb->cnAssociation->present != NR_DRB_ToAddMod__cnAssociation_PR_NOTHING);
+    DevAssert(drb->cnAssociation->present == NR_DRB_ToAddMod__cnAssociation_PR_sdap_Config);
+    DevAssert(drb->cnAssociation->choice.sdap_Config);
+    // get SDAP config
+    sdap_config_t sdap = nr_sdap_get_config(GNB_FLAG_YES, drb->cnAssociation->choice.sdap_Config, drb->drb_Identity);
+    // add SDAP entity
+    new_nr_sdap_entity(GNB_FLAG_YES, ue_id, sdap);
+    // add PDCP entity
+    add_drb(GNB_FLAG_YES, ue_id, drb->pdcp_Config, &sdap, sp);
+  }
+}
+
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
 {
   bool need_ue_id_mgmt = e1_used();
@@ -208,11 +226,10 @@ void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
     security_parameters.integrity_algorithm = req->secInfo.integrityProtectionAlgorithm;
     memcpy(security_parameters.ciphering_key, req->secInfo.encryptionKey, NR_K_KEY_SIZE);
     memcpy(security_parameters.integrity_key, req->secInfo.integrityProtectionKey, NR_K_KEY_SIZE);
-    nr_pdcp_add_drbs(true, // set this to notify PDCP that his not UE
-                     cu_up_ue_id,
-                     &DRB_configList,
-                     &security_parameters);
+
+    e1_add_bearers(cu_up_ue_id, &DRB_configList, &security_parameters);
     ASN_STRUCT_RESET(asn_DEF_NR_DRB_ToAddModList, &DRB_configList.list);
+
     if (f1inst >= 0) { /* we have F1(-U) */
       teid_t dummy_teid = 0xffff; // we will update later with answer from DU
       in_addr_t dummy_address = {0}; // IPv4, updated later with answer from DU

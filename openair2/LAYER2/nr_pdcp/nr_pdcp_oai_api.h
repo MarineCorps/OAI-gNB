@@ -33,6 +33,7 @@
 #include "nr_pdcp_ue_manager.h"
 struct NR_DRB_ToAddMod;
 struct NR_SRB_ToAddMod;
+struct sdap_configuration_s;
 
 void nr_pdcp_layer_init(void);
 
@@ -42,19 +43,15 @@ bool nr_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                       const sdu_size_t sdu_buffer_size,
                       uint8_t *const sdu_buffer);
 
-void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
-                      ue_id_t UEid,
-                      NR_DRB_ToAddModList_t *const drb2add_list,
-                      const nr_pdcp_entity_security_keys_and_algos_t *security_parameters);
-
 void nr_pdcp_add_srbs(eNB_flag_t enb_flag,
                       ue_id_t UEid,
                       NR_SRB_ToAddModList_t *const srb2add_list,
                       const nr_pdcp_entity_security_keys_and_algos_t *security_parameters);
 
 void add_drb(int is_gnb,
-             ue_id_t UEid,
-             struct NR_DRB_ToAddMod *s,
+             const ue_id_t UEid,
+             const NR_PDCP_Config_t *pdcp,
+             struct sdap_configuration_s *sdap,
              const nr_pdcp_entity_security_keys_and_algos_t *security_parameters);
 
 void nr_pdcp_remove_UE(ue_id_t ue_id);

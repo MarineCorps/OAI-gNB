@@ -77,7 +77,7 @@ typedef struct qfi2drb_s {
 
 void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_sdap_ul_hdr_t ctrl_pdu);
 
-typedef struct {
+typedef struct sdap_configuration_s {
   int pdusession_id;
   int drb_id;
   bool sdap_rx;

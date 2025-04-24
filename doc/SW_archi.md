@@ -325,7 +325,7 @@ The PDCP implementation is secured by a general mutex, akin to the design of the
 
 Initialization of the PDCP layer follows a structure similar to that of the RLC layer. The function `nr_pdcp_layer_init()` initializes PDCP, while a second initialization function, `pdcp_module_init()`, must also be invoked.
 
-To manage UE connections, `nr_pdcp_add_srbs()` is employed for adding UE SRBs in PDCP, while `nr_pdcp_remove_UE()` is used for their removal. Similarly, `nr_pdcp_add_drbs()` adds UE DRBs in PDCP, with `nr_pdcp_remove_UE()` handling their removal.
+To manage UE connections, `nr_pdcp_add_srbs()` is employed for adding UE SRBs in PDCP, while `nr_pdcp_remove_UE()` is used for their removal. Similarly, `add_drb()` adds UE DRB in PDCP, with `nr_pdcp_remove_UE()` handling their removal.
 
 ## PDCP Tx flow
 
