@@ -68,10 +68,16 @@ typedef struct nr_sdap_ul_hdr_s {
   uint8_t DC:1;
 } __attribute__((packed)) nr_sdap_ul_hdr_t;
 
+typedef enum {
+  SDAP_UL_TX = (1 << 0),
+  SDAP_UL_RX = (1 << 1),
+  SDAP_DL_TX = (1 << 2),
+  SDAP_DL_RX = (1 << 3)
+} sdap_role_t;
+
 typedef struct qfi2drb_s {
   rb_id_t drb_id;
-  bool    has_sdap_rx;
-  bool    has_sdap_tx;
+  int entity_role;
 } qfi2drb_t;
 
 void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_sdap_ul_hdr_t ctrl_pdu);
@@ -79,8 +85,7 @@ void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_s
 typedef struct sdap_configuration_s {
   int pdusession_id;
   int drb_id;
-  bool sdap_rx;
-  bool sdap_tx;
+  int role;
   bool defaultDRB;
   NR_QFI_t mappedQFIs2Add[SDAP_MAX_QFI];
   uint8_t mappedQFIs2AddCount;
@@ -107,8 +112,7 @@ typedef struct nr_sdap_entity_s {
   void (*qfi2drb_map_add)(struct nr_sdap_entity_s *entity,
                           const uint8_t qfi,
                           const uint8_t drb_id,
-                          const uint8_t role_rx,
-                          const uint8_t role_tx);
+                          const uint8_t role);
   int (*qfi2drb_map)(struct nr_sdap_entity_s *entity, uint8_t qfi);
 
   nr_sdap_ul_hdr_t (*sdap_construct_ctrl_pdu)(uint8_t qfi);
@@ -132,7 +136,6 @@ typedef struct nr_sdap_entity_s {
   void (*rx_entity)(struct nr_sdap_entity_s *entity,
                     rb_id_t pdcp_entity,
                     int is_gnb,
-                    bool has_sdap_rx,
                     int pdusession_id,
                     ue_id_t ue_id,
                     char *buf,
@@ -192,20 +195,6 @@ bool nr_sdap_delete_entity(ue_id_t ue_id, int pdusession_id);
  * @return                  True, it deleted at least one entity, false otherwise.
  */
 bool nr_sdap_delete_ue_entities(ue_id_t ue_id);
-
-/**
- * @brief indicates whether it is a receiving SDAP entity
- *        i.e. for UE, header for DL data is present
- *             for gNB, header for UL data is present
- */
-bool is_sdap_rx(bool is_gnb, NR_SDAP_Config_t *sdap_config);
-
-/**
- * @brief indicates whether it is a transmitting SDAP entity
- *        i.e. for UE, header for UL data is present
- *             for gNB, header for DL data is present
- */
-bool is_sdap_tx(bool is_gnb, NR_SDAP_Config_t *sdap_config);
 
 /**
  * @brief               Run the SDAP reconfiguration for the DRB
