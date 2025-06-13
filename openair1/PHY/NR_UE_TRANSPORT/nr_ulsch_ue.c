@@ -472,6 +472,175 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
   }
 }
 
+// Function to lookup beta offset value from Table 9.3-1 in TS 38.213
+static double get_beta_offset_harq_ack(uint8_t beta_offset_index)
+{
+  static const double beta_offset_values[21] = {
+      1.000, // Index 0
+      2.000, // Index 1
+      2.500, // Index 2
+      3.125, // Index 3
+      4.000, // Index 4
+      5.000, // Index 5
+      6.250, // Index 6
+      8.000, // Index 7
+      10.000, // Index 8
+      12.625, // Index 9
+      15.875, // Index 10
+      20.000, // Index 11
+      31.000, // Index 12
+      50.000, // Index 13
+      80.000, // Index 14
+      126.000, // Index 15
+      0.6, // Index 16
+      0.4, // Index 17
+      0.2, // Index 18
+      0.1, // Index 19
+      0.05, // Index 20
+  };
+
+  if (beta_offset_index > 20) {
+    LOG_E(PHY, "Invalid beta_offset_index %d, using default value\n", beta_offset_index);
+    return 20.000; // Default value using index 11
+  }
+
+  return beta_offset_values[beta_offset_index];
+}
+
+static double get_alpha_scaling_value(uint8_t alpha_scaling)
+{
+  switch (alpha_scaling) {
+    case 0:
+      return 0.5;
+    case 1:
+      return 0.65;
+    case 2:
+      return 0.8;
+    case 3:
+      return 1.0;
+    default:
+      AssertFatal(false, "Invalid alpha_scaling value %d, valid range is 0-3", alpha_scaling);
+      return 1.0;
+  }
+}
+
+/*
+ * This function gets the CRC size of UCI
+ */
+static int get_crc_uci(const uint16_t ouci)
+{
+  int L = 0;
+  if (ouci > 19) {
+    L = 11;
+  } else if (ouci > 11) {
+    L = 6;
+  } else {
+    L = 0; // no ACK/NACK
+  }
+
+  return L;
+}
+
+static uint16_t get_Qd(const uint16_t oack, double beta, double alpha, const uint32_t sumKr, const uint32_t s1, const uint32_t s2)
+{
+  if (oack == 0)
+    return 0;
+
+  uint16_t first_term = ceil(((double)oack + get_crc_uci(oack)) * (double)beta * s1 / sumKr);
+  uint16_t second_term = ceil(alpha * s2);
+
+  return (first_term < second_term) ? first_term : second_term;
+}
+
+/*
+ * This function calculates the rate matching information for UCI multiplexing with PUSCH
+ */
+static rate_match_info_uci_t calc_rate_match_info_uci(const nfapi_nr_ue_pusch_pdu_t *pusch_pdu,
+                                                      const NR_UL_UE_HARQ_t *harq_process_ul_ue,
+                                                      const uint8_t nlqm,
+                                                      unsigned int *G)
+{
+  // get beta offset
+  uint8_t beta_offset_index = pusch_pdu->pusch_uci.beta_offset_harq_ack;
+  double beta = get_beta_offset_harq_ack(beta_offset_index);
+
+  // get alpha scaling value
+  uint8_t alpha_scaling = pusch_pdu->pusch_uci.alpha_scaling;
+  double alpha = get_alpha_scaling_value(alpha_scaling);
+
+  // Calculate sumKr (total bits in all code blocks)
+  uint32_t sumKr = 0;
+  if (harq_process_ul_ue->C == 0) {
+    sumKr = 0;
+  } else if (harq_process_ul_ue->C == 1) {
+    sumKr = harq_process_ul_ue->K;
+  } else {
+    sumKr = harq_process_ul_ue->K * harq_process_ul_ue->C;
+  }
+
+  // Calculate s1: total number of non-DMRS REs in allocation
+  uint16_t nb_rb = pusch_pdu->rb_size;
+  uint8_t start_symbol = pusch_pdu->start_symbol_index;
+  uint8_t number_of_symbols = pusch_pdu->nr_of_symbols;
+  uint16_t ul_dmrs_symb_pos = pusch_pdu->ul_dmrs_symb_pos;
+
+  uint32_t s1 = 0;
+  for (int l = start_symbol; l < start_symbol + number_of_symbols; l++) {
+    if (!((ul_dmrs_symb_pos >> l) & 0x01)) {
+      s1 += nb_rb * NR_NB_SC_PER_RB;
+    }
+  }
+
+  // Calculate s2: number of non-DMRS REs after first DMRS symbol
+  int first_dmrs_symbol = -1;
+  for (int l = start_symbol; l < start_symbol + number_of_symbols; l++) {
+    if ((ul_dmrs_symb_pos >> l) & 0x01) {
+      first_dmrs_symbol = l;
+      break;
+    }
+  }
+  int l0 = -1;
+  if (first_dmrs_symbol >= 0 && first_dmrs_symbol < start_symbol + number_of_symbols - 1) {
+    l0 = first_dmrs_symbol + 1;
+  }
+  uint32_t s2 = 0;
+  for (int l = l0; l < start_symbol + number_of_symbols; l++) {
+    if (!((ul_dmrs_symb_pos >> l) & 0x01)) {
+      s2 += nb_rb * NR_NB_SC_PER_RB;
+    }
+  }
+
+  uint16_t oack = pusch_pdu->pusch_uci.harq_ack_bit_length;
+  uint16_t oack_rvd = (oack <= 2) ? 2 : 0; // get the reserved bits when oACK <= 2 according to TS 38.212 section 6.2.7, step 1
+
+  rate_match_info_uci_t rminfo = {0};
+
+  // get the number of coded HARQ-ACK symbols and bits, TS 38.212 section 6.3.2.4.1.1
+  rminfo.Q_dash_ACK = get_Qd(oack, beta, alpha, sumKr, s1, s2);
+  rminfo.E_uci_ACK = rminfo.Q_dash_ACK * nlqm;
+
+  if (oack_rvd > 0) {
+    rminfo.Q_dash_ACK_rvd = get_Qd(oack_rvd, beta, alpha, sumKr, s1, s2);
+    rminfo.E_uci_ACK_rvd = rminfo.Q_dash_ACK_rvd * nlqm;
+  }
+
+  if (oack_rvd == 0) {
+    rminfo.G_ulsch = *G - rminfo.E_uci_ACK;
+  } else {
+    rminfo.G_ulsch = *G;
+  }
+
+  *G = rminfo.G_ulsch;
+  LOG_D(PHY, "[UCI_RATE_MATCH] sumKr=%u, s1=%u, s2=%u, Final G_ulsch (output G): %u\n", sumKr, s1, s2, *G);
+  LOG_D(PHY,
+        "[UCI_RATE_MATCH] rate matching info returned: E_uci_ACK=%u, E_uci_ACK_rvd=%u, G_ulsch=%u\n",
+        rminfo.E_uci_ACK,
+        rminfo.E_uci_ACK_rvd,
+        rminfo.G_ulsch);
+
+  return rminfo;
+}
+
 void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                             const uint32_t frame,
                             const uint8_t slot,
