@@ -1253,30 +1253,24 @@ void NFAPI_NR_DMRS_TYPE2_average_prb(NR_DL_FRAME_PARMS *frame_parms,
 #endif
 }
 
-int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
-                                const UE_nr_rxtx_proc_t *proc,
-                                int nl,
-                                unsigned short p,
-                                unsigned char symbol,
-                                unsigned char nscid,
-                                unsigned short scrambling_id,
-                                unsigned short BWPStart,
-                                uint8_t config_type,
-                                int n_dmrs_cdm_groups,
-                                uint16_t rb_offset,
-                                unsigned short bwp_start_subcarrier,
-                                unsigned short nb_rb_pdsch,
-                                uint32_t pdsch_est_size,
-                                int32_t dl_ch_estimates[][pdsch_est_size],
-                                int rxdataFsize,
-                                c16_t rxdataF[][rxdataFsize],
-                                uint32_t *nvar)
+void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
+                                 const UE_nr_rxtx_proc_t *proc,
+                                 const fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch,
+                                 int nl,
+                                 unsigned short p,
+                                 unsigned char symbol,
+                                 uint32_t pdsch_est_size,
+                                 int32_t dl_ch_estimates[][pdsch_est_size],
+                                 int rxdataFsize,
+                                 c16_t rxdataF[][rxdataFsize],
+                                 uint32_t *nvar)
 {
   // int gNB_id = proc->gNB_id;
   int slot = proc->nr_slot_rx;
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   const int ch_offset = fp->ofdm_symbol_size * symbol;
   const int symbol_offset = fp->ofdm_symbol_size * symbol;
+  int bwp_start_subcarrier = ue->frame_parms.first_carrier_offset + (dlsch->BWPStart + dlsch->start_rb) * 12;
 
 #ifdef DEBUG_PDSCH
   printf(
@@ -1292,13 +1286,15 @@ int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
 #endif
 
   // generate pilot for gNB port number 1000+p
+  int config_type = dlsch->dmrsConfigType;
+  int rb_offset = dlsch->rb_offset;
+  int nb_rb_pdsch = dlsch->number_rbs;
   int8_t delta = get_delta(p, config_type);
-
   c16_t pilot[3280] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
-  float beta_dmrs_pdsch = get_beta_dmrs(n_dmrs_cdm_groups, config_type == NFAPI_NR_DMRS_TYPE2);
+  float beta_dmrs_pdsch = get_beta_dmrs(dlsch->n_dmrs_cdm_groups, config_type == NFAPI_NR_DMRS_TYPE2);
   int16_t dmrs_scaling = (int16_t)((1 / beta_dmrs_pdsch) * (1 << 14));
-  const uint32_t *gold = nr_gold_pdsch(fp->N_RB_DL, fp->symbols_per_slot, scrambling_id, nscid, slot, symbol);
+  const uint32_t *gold = nr_gold_pdsch(fp->N_RB_DL, fp->symbols_per_slot, dlsch->dlDmrsScramblingId, dlsch->nscid, slot, symbol);
   nr_pdsch_dmrs_rx(ue, slot, gold, pilot, 1000 + p, 0, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
 
   delay_t delay = {0};
@@ -1351,7 +1347,6 @@ int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
     }
 #endif
   }
-  return 0;
 }
 
 /*******************************************************************
