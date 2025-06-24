@@ -417,28 +417,25 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
   stop_meas_nr_ue_phy(ue, PHY_PROC_TX);
 }
 
-void nr_ue_measurement_procedures(uint16_t l,
-                                  PHY_VARS_NR_UE *ue,
-                                  const UE_nr_rxtx_proc_t *proc,
-                                  NR_UE_DLSCH_t *dlsch,
-                                  uint32_t pdsch_est_size,
-                                  int32_t dl_ch_estimates[][pdsch_est_size])
+static void nr_ue_measurement_procedures(uint16_t l,
+                                         PHY_VARS_NR_UE *ue,
+                                         const UE_nr_rxtx_proc_t *proc,
+                                         int number_rbs,
+                                         uint32_t pdsch_est_size,
+                                         int32_t dl_ch_estimates[][pdsch_est_size])
 {
   NR_DL_FRAME_PARMS *frame_parms=&ue->frame_parms;
   int nr_slot_rx = proc->nr_slot_rx;
   int gNB_id = proc->gNB_id;
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_UE_MEASUREMENT_PROCEDURES, VCD_FUNCTION_IN);
 
-  if (l==2) {
-
+  if (l == 2) {
     LOG_D(PHY,"Doing UE measurement procedures in symbol l %u Ncp %d nr_slot_rx %d, rxdata %p\n",
-      l,
-      ue->frame_parms.Ncp,
-      nr_slot_rx,
-      ue->common_vars.rxdata);
-
-    nr_ue_measurements(ue, proc, dlsch, pdsch_est_size, dl_ch_estimates);
-
+          l,
+          ue->frame_parms.Ncp,
+          nr_slot_rx,
+          ue->common_vars.rxdata);
+    nr_ue_measurements(ue, proc, number_rbs, pdsch_est_size, dl_ch_estimates);
 #if T_TRACER
     if(nr_slot_rx == 0)
       T(T_UE_PHY_MEAS,
@@ -580,21 +577,17 @@ int nr_ue_pdcch_procedures(PHY_VARS_NR_UE *ue,
 static freq_alloc_bitmap_t set_start_end_from_bitmap(int size, int alloc_size, const uint8_t bitmap[alloc_size])
 {
   freq_alloc_bitmap_t alloc = {
+    .num_rbs = 0,
     .start = size,
     .end = 0
   };
 
-  for (int start = 0; start < size; start++) {
-    if ((bitmap[start / 8] >> start % 8) & 0x1) {
-      alloc.start = start;
-      break;
-    }
-  }
-  AssertFatal(alloc.start < size, "Frequency allocation bitmap empty\n");
-  for (int end = size - 1; end > 0; end--) {
-    if ((bitmap[end / 8] >> end % 8) & 0x1) {
-      alloc.end = end;
-      break;
+  for (int i = 0; i < size; i++) {
+    if ((bitmap[i / 8] >> i % 8) & 0x1) {
+      if (alloc.start == size)
+        alloc.start = i;
+      alloc.end = i;
+      alloc.num_rbs++;
     }
   }
   AssertFatal(alloc.end > 0, "Frequency allocation bitmap empty\n");
@@ -605,6 +598,7 @@ static freq_alloc_bitmap_t set_start_end_from_bitmap(int size, int alloc_size, c
 static freq_alloc_bitmap_t set_bitmap_from_start_size(int start, int size)
 {
   freq_alloc_bitmap_t alloc = {
+    .num_rbs = size,
     .start = start,
     .end = start + size - 1
   };
@@ -665,7 +659,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     int32_t ptrs_re_per_slot[ue->frame_parms.nb_antennas_rx][NR_SYMBOLS_PER_SLOT];
     memset(ptrs_re_per_slot, 0, sizeof(ptrs_re_per_slot));
 
-    const uint32_t rx_size_symbol = (dlsch[0].dlsch_config.number_rbs * NR_NB_SC_PER_RB + 15) & ~15;
+    const uint32_t rx_size_symbol = (freq_alloc.num_rbs * NR_NB_SC_PER_RB + 15) & ~15;
     fourDimArray_t *toFree2 = NULL;
     allocCast3D(rxdataF_comp,
                 int32_t,
@@ -709,10 +703,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
       }
     }
     stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
-
     nvar /= (dlschCfg->number_symbols * dlsch0->Nl * ue->frame_parms.nb_antennas_rx);
-
-    nr_ue_measurement_procedures(2, ue, proc, &dlsch[0], pdsch_est_size, pdsch_dl_ch_estimates);
+    nr_ue_measurement_procedures(2, ue, proc, freq_alloc.num_rbs, pdsch_est_size, pdsch_dl_ch_estimates);
 
     if (ue->chest_time == 1) { // averaging time domain channel estimates
       nr_chest_time_domain_avg(&ue->frame_parms,
@@ -720,7 +712,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                dlschCfg->number_symbols,
                                dlschCfg->start_symbol,
                                dlschCfg->dlDmrsSymbPos,
-                               dlschCfg->number_rbs);
+                               freq_alloc.num_rbs);
     }
 
     uint16_t first_symbol_with_data = dlschCfg->start_symbol;
@@ -758,13 +750,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                                            pdschChanEstimates,
                                                            sizeof(c16_t),
                                                            1,
-                                                           dlschCfg->number_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
+                                                           freq_alloc.num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
                                                            &mt);
       scope_req.copy_rxdataF_to_scope = UETryLockScopeData(ue,
                                                            pdschRxdataF,
                                                            sizeof(c16_t),
                                                            1,
-                                                           dlschCfg->number_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
+                                                           freq_alloc.num_rbs * NR_NB_SC_PER_RB * dlschCfg->number_symbols,
                                                            &mt);
     }
     for (int m = dlschCfg->start_symbol; m < (dlschCfg->number_symbols + dlschCfg->start_symbol); m++) {
