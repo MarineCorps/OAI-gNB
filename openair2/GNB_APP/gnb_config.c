@@ -722,6 +722,8 @@ void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type)
     verify_section_notset(cfg, GNB_CONFIG_STRING_GNB_LIST ".[0]", GNB_CONFIG_STRING_AMF_IP_ADDRESS);
     verify_section_notset(cfg, NULL, CONFIG_STRING_SECURITY);
     verify_section_notset(cfg, NULL, CONFIG_STRING_NR_PDCP_LIST);
+    verify_section_notset(cfg, NULL, GNB_CONFIG_STRING_NEIGHBOUR_LIST);
+    verify_section_notset(cfg, NULL, GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION);
   } // else nothing to be checked
 
   /* other possible verifications: PNF, VNF, CU-CP, CU-UP, ...? */
