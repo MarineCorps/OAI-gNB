@@ -918,7 +918,7 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   fh_config->dpdk_port = ru_idx; // DPDK port number used for FH
   fh_config->sector_id = 0; // Band sector ID for FH; not used in xran
   fh_config->nCC = 1; // number of Component carriers supported on FH; M-plane info
-  fh_config->neAxc = RTE_MAX(oai0->num_distributed_ru * oai0->tx_num_channels / num_rus, oai0->num_distributed_ru * oai0->rx_num_channels / num_rus); // number of eAxc supported on one CC = max(PDSCH, PUSCH)
+  fh_config->neAxc = RTE_MAX(oai0->tx_num_channels / num_rus, oai0->rx_num_channels / num_rus); // number of eAxc supported on one CC = max(PDSCH, PUSCH)
   fh_config->neAxcUl = 0; // number of eAxc supported on one CC for UL direction = PUSCH; used only if XRAN_CATEGORY_B
   fh_config->nAntElmTRx = 0; // number of antenna elements for TX and RX = SRS; used only if XRAN_CATEGORY_B
   fh_config->nDLFftSize = 0; // DL FFT size; not used in xran
