@@ -41,6 +41,14 @@ typedef struct ru_info_s {
   int nb_tx;
   int32_t **txdataF_BF;
 
+  /// \brief Anaglogue beam ID for each OFDM symbol (used when beamforming not done in RU)
+  /// - first index: concurrent beam
+  /// - second index: beam_id [0.. symbols_per_frame]
+  int32_t **beam_id;
+
+  /// number of concurrent analog beams in period
+  int num_beams_period;
+
   // Needed for Prach
   int16_t **prach_buf;
 } ru_info_t;
