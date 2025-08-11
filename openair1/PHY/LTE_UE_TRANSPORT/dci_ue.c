@@ -1381,12 +1381,6 @@ void dci_decoding(uint8_t DCI_LENGTH,
   //debug_printf("Done DCI Viterbi \n");
 }
 
-
-static uint8_t dci_decoded_output[RX_NB_TH][(MAX_DCI_SIZE_BITS+64)/8];
-
-
-
-
 int get_nCCE_offset_l1(int *CCE_table,
 		       const unsigned char L,
 		       const int nCCE,
@@ -1625,25 +1619,14 @@ void dci_decoding_procedure0(LTE_UE_PDCCH **pdcch_vars,
       else
         LOG_D(PHY,"[DCI search nPdcch %d - ue spec %x] Attempting candidate %d Aggregation Level %d DCI length %d at CCE %d/%d (CCEmap %x,CCEmap_cand %x) format %d\n",
 	      pdcch_vars[eNB_id]->num_pdcch_symbols,pdcch_vars[eNB_id]->crnti,m,L2,sizeof_bits,CCEind,nCCE,*CCEmap,CCEmap_mask,format_c);
-
-       dci_decoding(sizeof_bits,
-                   L,
-                   &pdcch_vars[eNB_id]->e_rx[CCEind*72],
-                   &dci_decoded_output[current_thread_id][0]);
-       /*
-        for (i=0;i<3+(sizeof_bits>>3);i++)
-	  printf("dci_decoded_output[%d][%d] => %x\n",current_thread_id,i,dci_decoded_output[current_thread_id][i]);
-       */
-
-      crc = (crc16(&dci_decoded_output[current_thread_id][0],sizeof_bits)>>16) ^ extract_crc(&dci_decoded_output[current_thread_id][0],sizeof_bits);
+      uint8_t dci_decoded_output[(MAX_DCI_SIZE_BITS + 64) / 8] = {};
+      dci_decoding(sizeof_bits, L, &pdcch_vars[eNB_id]->e_rx[CCEind * 72], dci_decoded_output);
+      crc = (crc16(dci_decoded_output, sizeof_bits) >> 16) ^ extract_crc(dci_decoded_output, sizeof_bits);
 #ifdef DEBUG_DCI_DECODING
       printf("crc =>%x\n",crc);
 #endif
-
-      if (((L>1) && ((crc == si_rnti)||
-		     (crc == p_rnti)||
-                     (crc == ra_rnti)/*||(crc == 0xfff9)*/))||
-          (crc == pdcch_vars[eNB_id]->crnti))   {
+      uint8_t *ptr = dci_decoded_output;
+      if (( (L>1) && (crc == si_rnti||crc == p_rnti||crc == ra_rnti))||          (crc == pdcch_vars[eNB_id]->crnti))   {
         dci_alloc[*dci_cnt].dci_length = sizeof_bits;
         dci_alloc[*dci_cnt].rnti       = crc;
         dci_alloc[*dci_cnt].L          = L;
@@ -1651,30 +1634,19 @@ void dci_decoding_procedure0(LTE_UE_PDCCH **pdcch_vars,
 
         //printf("DCI FOUND !!! crc =>%x,  sizeof_bits %d, sizeof_bytes %d \n",crc, sizeof_bits, sizeof_bytes);
         if (sizeof_bytes<=4) {
-          dci_alloc[*dci_cnt].dci_pdu[3] = dci_decoded_output[current_thread_id][0];
-          dci_alloc[*dci_cnt].dci_pdu[2] = dci_decoded_output[current_thread_id][1];
-          dci_alloc[*dci_cnt].dci_pdu[1] = dci_decoded_output[current_thread_id][2];
-          dci_alloc[*dci_cnt].dci_pdu[0] = dci_decoded_output[current_thread_id][3];
-#ifdef DEBUG_DCI_DECODING
-          printf("DCI => %x,%x,%x,%x\n",dci_decoded_output[current_thread_id][0],
-                  dci_decoded_output[current_thread_id][1],
-                  dci_decoded_output[current_thread_id][2],
-                  dci_decoded_output[current_thread_id][3]);
-#endif
+          dci_alloc[*dci_cnt].dci_pdu[3] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[2] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[1] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[0] = *ptr++;
         } else {
-          dci_alloc[*dci_cnt].dci_pdu[7] = dci_decoded_output[current_thread_id][0];
-          dci_alloc[*dci_cnt].dci_pdu[6] = dci_decoded_output[current_thread_id][1];
-          dci_alloc[*dci_cnt].dci_pdu[5] = dci_decoded_output[current_thread_id][2];
-          dci_alloc[*dci_cnt].dci_pdu[4] = dci_decoded_output[current_thread_id][3];
-          dci_alloc[*dci_cnt].dci_pdu[3] = dci_decoded_output[current_thread_id][4];
-          dci_alloc[*dci_cnt].dci_pdu[2] = dci_decoded_output[current_thread_id][5];
-          dci_alloc[*dci_cnt].dci_pdu[1] = dci_decoded_output[current_thread_id][6];
-          dci_alloc[*dci_cnt].dci_pdu[0] = dci_decoded_output[current_thread_id][7];
-#ifdef DEBUG_DCI_DECODING
-          printf("DCI => %x,%x,%x,%x,%x,%x,%x,%x\n",
-              dci_decoded_output[current_thread_id][0],dci_decoded_output[current_thread_id][1],dci_decoded_output[current_thread_id][2],dci_decoded_output[current_thread_id][3],
-              dci_decoded_output[current_thread_id][4],dci_decoded_output[current_thread_id][5],dci_decoded_output[current_thread_id][6],dci_decoded_output[current_thread_id][7]);
-#endif
+          dci_alloc[*dci_cnt].dci_pdu[7] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[6] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[5] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[4] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[3] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[2] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[1] = *ptr++;
+          dci_alloc[*dci_cnt].dci_pdu[0] = *ptr++;
         }
 
         if (crc==si_rnti /*|| crc==0xfff9*/) {
@@ -1689,8 +1661,7 @@ void dci_decoding_procedure0(LTE_UE_PDCCH **pdcch_vars,
           pdcch_vars[eNB_id]->nCCE[subframe]=CCEind;
           *dci_cnt = *dci_cnt+1;
         } else if (crc==pdcch_vars[eNB_id]->crnti) {
-
-          if ((mode&UL_DCI)&&(format_c == format0)&&((dci_decoded_output[current_thread_id][0]&0x80)==0)) {// check if pdu is format 0 or 1A
+          if ((mode & UL_DCI) && (format_c == format0) && ((dci_decoded_output[0] & 0x80) == 0)) { // check if pdu is format 0 or 1A
             if (*format0_found == 0) {
               dci_alloc[*dci_cnt].format     = format0;
               *format0_found = 1;
