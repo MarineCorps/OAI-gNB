@@ -12,6 +12,14 @@ idefix:
   IF: wwan0
   MTU: 1500
 
+raspix:
+  Host: raspix
+  AttachScript: sudo /opt/mbim_scripts/start_quectel_mbim.sh
+  DetachScript: sudo /opt/mbim_scripts/stop_quectel_mbim.sh
+  NetworkScript: ip a show dev wwan0
+  IF: wwan0
+  MTU: 1500
+
 up2:
   Host: up2
   AttachScript: sudo /opt/mbim/start_quectel_mbim.sh
@@ -76,6 +84,14 @@ oc-cn5g-20897:
   Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72 %%log_dir%%"
+
+oc-cn5g-00102-ho:
+  Host: groot
+  NetworkScript: echo "inet 172.21.6.111"
+  RunIperf3Server: False
+  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho"
+  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho"
+  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho %%log_dir%%"
 
 oc-cn5g-20897-aerial:
   Host: gracehopper1-oai
