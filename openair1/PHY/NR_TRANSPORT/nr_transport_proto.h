@@ -200,7 +200,7 @@ void nr_fill_ulsch(PHY_VARS_gNB *gNB,
                    int slot,
                    nfapi_nr_pusch_pdu_t *ulsch_pdu);
 
-gNB_PRACH_list_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu);
+prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu);
 
 void rx_nr_prach(PHY_VARS_gNB *gNB,
                  nfapi_nr_prach_pdu_t *prach_pdu,
@@ -223,8 +223,8 @@ void rx_nr_prach_ru(RU_t *ru,
 
 void nr_fill_prach_ru(RU_t *ru,int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beam_nb);
 
-gNB_PRACH_list_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_type_t type);
-RU_PRACH_list_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t type);
+prach_item_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_type_t type);
+prach_item_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t type);
 
 void nr_fill_pucch(PHY_VARS_gNB *gNB,
                    int frame,
@@ -247,10 +247,10 @@ int nr_get_srs_signal(PHY_VARS_gNB *gNB,
 
 void init_prach_list(PHY_VARS_gNB *gNB);
 void init_prach_ru_list(RU_t *ru);
-void free_nr_ru_prach_entry(RU_t *ru, RU_PRACH_list_t *p);
+void free_nr_ru_prach_entry(RU_t *ru, prach_item_t *p);
 int get_nr_prach_duration(uint8_t prach_format);
 
-void free_nr_prach_entry(PHY_VARS_gNB *gNB, gNB_PRACH_list_t *);
+void free_nr_prach_entry(PHY_VARS_gNB *gNB, prach_item_t *);
 
 void nr_decode_pucch1(c16_t **rxdataF,
                       pucch_GroupHopping_t pucch_GroupHopping,

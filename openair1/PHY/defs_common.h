@@ -998,6 +998,31 @@ typedef struct {
   bool failed;
 } decode_abort_t;
 
+// TODO will be removed in a late commit
+#include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface_scf.h"
+#define NUMBER_OF_NR_PRACH_MAX 8
+typedef struct {
+  int frame;
+  int slot;
+  int num_slots; // prach duration in slots
+  enum { prach_upper, prach_lower } type;
+  union {
+    struct {
+      // identifier for concurrent beams
+      int *beam_nb;
+      nfapi_nr_prach_pdu_t pdu;
+    } upper;
+    struct {
+      int fmt;
+      int numRA;
+      int prachStartSymbol;
+      int num_prach_ocas;
+      int *beam;
+    } lower;
+  };
+  nfapi_nr_prach_pdu_t pdu;
+} prach_item_t;
+
 static inline void init_abort(decode_abort_t *ab)
 {
   int ret = pthread_mutex_init(&ab->mutex_failure, NULL);

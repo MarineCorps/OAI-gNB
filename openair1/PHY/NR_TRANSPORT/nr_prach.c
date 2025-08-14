@@ -46,24 +46,24 @@ void init_prach_list(PHY_VARS_gNB *gNB)
   }
 }
 
-void free_nr_prach_entry(PHY_VARS_gNB *gNB, gNB_PRACH_list_t *p)
+void free_nr_prach_entry(PHY_VARS_gNB *gNB, prach_item_t *p)
 {
   for (uint16_t i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
     if (p == gNB->prach_vars.list + i) {
       p->frame = -1;
       p->slot = -1;
       p->num_slots = -1;
-      free_and_zero(p->beam_nb);
+      free_and_zero(p->upper.beam_nb);
       break;
     }
   }
 }
 
-gNB_PRACH_list_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_type_t type)
+prach_item_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_type_t type)
 {
   AssertFatal(gNB!=NULL,"gNB is null\n");
   for (uint16_t i=0; i<NUMBER_OF_NR_PRACH_MAX; i++) {
-    gNB_PRACH_list_t *p = gNB->prach_vars.list + i;
+    prach_item_t *p = gNB->prach_vars.list + i;
     LOG_D(PHY, "searching for PRACH in %d.%d prach_index %d=> %d.%d\n", frame, slot, i, p->frame, p->slot);
     if ((type == SEARCH_EXIST_OR_FREE) && (p->frame == -1) && (p->slot == -1)) {
       return p;
@@ -74,28 +74,29 @@ gNB_PRACH_list_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_typ
   return NULL;
 }
 
-gNB_PRACH_list_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
+prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
 {
-  gNB_PRACH_list_t *prach = find_nr_prach(gNB, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  prach_item_t *prach = find_nr_prach(gNB, SFN, Slot, SEARCH_EXIST_OR_FREE);
   AssertFatal(prach, "prach list full!!!\n");
   prach->frame = SFN;
   prach->slot = Slot;
+  prach->type=prach_upper;
   const int format = prach_pdu->prach_format;
   prach->num_slots = (format < 4) ? get_long_prach_dur(format, gNB->frame_parms.numerology_index) : 1;
   if (gNB->common_vars.beam_id) {
     int n_symb = get_nr_prach_duration(prach_pdu->prach_format);
-    prach->beam_nb = calloc(prach_pdu->beamforming.dig_bf_interface, sizeof(*prach->beam_nb));
+    prach->upper.beam_nb = calloc(prach_pdu->beamforming.dig_bf_interface, sizeof(*prach->upper.beam_nb));
     for (int i = 0; i < prach_pdu->beamforming.dig_bf_interface; i++) {
       int fapi_beam_idx = prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx;
       int start_symb = prach_pdu->prach_start_symbol + i * n_symb;
       int bitmap = SL_to_bitmap(start_symb, n_symb);
-      prach->beam_nb[i] = beam_index_allocation(gNB->enable_analog_das,
-                                                fapi_beam_idx,
-                                                &gNB->gNB_config.analog_beamforming_ve,
-                                                &gNB->common_vars,
-                                                Slot,
-                                                NR_NUMBER_OF_SYMBOLS_PER_SLOT,
-                                                bitmap);
+      prach->upper.beam_nb[i] = beam_index_allocation(gNB->enable_analog_das,
+                                                      fapi_beam_idx,
+                                                      &gNB->gNB_config.analog_beamforming_ve,
+                                                      &gNB->common_vars,
+                                                      Slot,
+                                                      NR_NUMBER_OF_SYMBOLS_PER_SLOT,
+                                                      bitmap);
     }
   }
   prach->pdu = *prach_pdu;
@@ -105,7 +106,7 @@ gNB_PRACH_list_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_p
 void init_prach_ru_list(RU_t *ru)
 {
   AssertFatal(ru != NULL, "ru is null\n");
-  for (int i = 0; i < NUMBER_OF_NR_RU_PRACH_MAX; i++) {
+  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
     ru->prach_list[i].frame = -1;
     ru->prach_list[i].slot = -1;
     ru->prach_list[i].num_slots = -1;
@@ -113,12 +114,12 @@ void init_prach_ru_list(RU_t *ru)
   pthread_mutex_init(&ru->prach_list_mutex, NULL);
 }
 
-RU_PRACH_list_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t type)
+prach_item_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t type)
 {
   AssertFatal(ru != NULL, "ru is null\n");
   pthread_mutex_lock(&ru->prach_list_mutex);
-  for (int i = 0; i < NUMBER_OF_NR_RU_PRACH_MAX; i++) {
-    RU_PRACH_list_t *p = ru->prach_list + i;
+  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
+    prach_item_t *p = ru->prach_list + i;
     LOG_D(PHY, "searching for PRACH in %d.%d : prach_index %d=> %d.%d\n", frame, slot, i, p->frame, p->slot);
     if ((type == SEARCH_EXIST_OR_FREE) && (p->frame == -1) && (p->slot == -1)) {
       pthread_mutex_unlock(&ru->prach_list_mutex);
@@ -134,7 +135,7 @@ RU_PRACH_list_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t typ
 
 void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beam_id)
 {
-  RU_PRACH_list_t *prach = find_nr_prach_ru(ru, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  prach_item_t *prach = find_nr_prach_ru(ru, SFN, Slot, SEARCH_EXIST_OR_FREE);
   AssertFatal(prach, "ru prach list full\n");
 
   pthread_mutex_lock(&ru->prach_list_mutex);
@@ -142,18 +143,19 @@ void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_p
   prach->slot = Slot;
   const int fmt = prach_pdu->prach_format;
   prach->num_slots = (fmt < 4) ? get_long_prach_dur(fmt, ru->nr_frame_parms->numerology_index) : 1;
-  prach->fmt = fmt;
-  prach->numRA = prach_pdu->num_ra;
-  prach->beam = beam_id;
-  prach->prachStartSymbol = prach_pdu->prach_start_symbol;
-  prach->num_prach_ocas = prach_pdu->num_prach_ocas;
+  prach->type=prach_lower;
+  prach->lower.fmt = fmt;
+  prach->lower.numRA = prach_pdu->num_ra;
+  prach->lower.beam = beam_id;
+  prach->lower.prachStartSymbol = prach_pdu->prach_start_symbol;
+  prach->lower.num_prach_ocas = prach_pdu->num_prach_ocas;
   pthread_mutex_unlock(&ru->prach_list_mutex);
 }
 
-void free_nr_ru_prach_entry(RU_t *ru, RU_PRACH_list_t *p)
+void free_nr_ru_prach_entry(RU_t *ru, prach_item_t *p)
 {
   pthread_mutex_lock(&ru->prach_list_mutex);
-  for (int i = 0; i < NUMBER_OF_NR_RU_PRACH_MAX; i++) {
+  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
     if (p == ru->prach_list + i) {
       p->frame = -1;
       p->slot = -1;

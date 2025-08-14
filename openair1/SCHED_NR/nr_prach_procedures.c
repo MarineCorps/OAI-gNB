@@ -63,7 +63,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 
   ru=gNB->RU_list[0];
 
-  gNB_PRACH_list_t *prach_id = find_nr_prach(gNB, frame, slot, SEARCH_EXIST);
+  prach_item_t *prach_id = find_nr_prach(gNB, frame, slot, SEARCH_EXIST);
   if (!prach_id) {
     return;
   }

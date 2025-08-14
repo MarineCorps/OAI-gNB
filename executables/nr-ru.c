@@ -1208,7 +1208,7 @@ void *ru_thread(void *param)
                      proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
 
         // Do PRACH RU processing
-        RU_PRACH_list_t *p = find_nr_prach_ru(ru, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
+        prach_item_t *p = find_nr_prach_ru(ru, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
         if (p) {
           VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_RU_PRACH_RX, 1 );
 
@@ -1218,15 +1218,15 @@ void *ru_thread(void *param)
             T_INT(0),
             T_BUFFER(&ru->common.rxdata[0][fp->get_samples_slot_timestamp(proc->tti_rx - 1, fp, 0) /*-ru->N_TA_offset*/],
                      (fp->get_samples_per_slot(proc->tti_rx - 1, fp) + fp->get_samples_per_slot(proc->tti_rx, fp)) * 4));
-          int N_dur = get_nr_prach_duration(p->fmt);
+          int N_dur = get_nr_prach_duration(p->lower.fmt);
 
-          for (int prach_oc = 0; prach_oc < p->num_prach_ocas; prach_oc++) {
-            int prachStartSymbol = p->prachStartSymbol + prach_oc * N_dur;
-            int beam_id = p->beam ? p->beam[prach_oc] : 0;
+          for (int prach_oc = 0; prach_oc < p->lower.num_prach_ocas; prach_oc++) {
+            int prachStartSymbol = p->lower.prachStartSymbol + prach_oc * N_dur;
+            int beam_id = p->lower.beam ? p->lower.beam[prach_oc] : 0;
             //comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
             rx_nr_prach_ru(ru,
-                           p->fmt, // could also use format
-                           p->numRA,
+                           p->lower.fmt, // could also use format
+                           p->lower.numRA,
                            beam_id,
                            prachStartSymbol,
                            p->slot,
