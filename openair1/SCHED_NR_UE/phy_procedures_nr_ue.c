@@ -404,7 +404,8 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
                                   (c16_t **)txdataF,
                                   txp,
                                   link_type_ul,
-                                  was_symbol_used);
+                                  was_symbol_used,
+                                  ue->no_phase_pre_comp);
     stop_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
   }
 

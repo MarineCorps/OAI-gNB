@@ -1506,18 +1506,20 @@ uint8_t nr_ue_pusch_common_procedures(PHY_VARS_NR_UE *UE,
                                       c16_t **txdataF,
                                       c16_t **txdata,
                                       uint32_t linktype,
-                                      bool was_symbol_used[NR_NUMBER_OF_SYMBOLS_PER_SLOT])
+                                      bool was_symbol_used[NR_NUMBER_OF_SYMBOLS_PER_SLOT],
+                                      bool no_phase_pre_comp)
 {
   int N_RB = (linktype == link_type_sl) ? frame_parms->N_RB_SL : frame_parms->N_RB_UL;
 
-  for (int i = 0; i < NR_NUMBER_OF_SYMBOLS_PER_SLOT; i++) {
-    if (was_symbol_used[i] == false)
-      continue;
-    for (int ap = 0; ap < n_antenna_ports; ap++) {
-      apply_nr_rotation_TX(frame_parms, txdataF[ap], frame_parms->symbol_rotation[linktype], slot, N_RB, i, 1);
+  if (!no_phase_pre_comp) {
+    for (int i = 0; i < NR_NUMBER_OF_SYMBOLS_PER_SLOT; i++) {
+      if (was_symbol_used[i] == false)
+        continue;
+      for (int ap = 0; ap < n_antenna_ports; ap++) {
+        apply_nr_rotation_TX(frame_parms, txdataF[ap], frame_parms->symbol_rotation[linktype], slot, N_RB, i, 1);
+      }
     }
   }
-
 
   for (int ap = 0; ap < n_antenna_ports; ap++) {
     if (frame_parms->Ncp == 1) { // extended cyclic prefix

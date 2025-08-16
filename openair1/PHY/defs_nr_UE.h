@@ -499,6 +499,9 @@ typedef struct PHY_VARS_NR_UE_s {
   /// RF and Interface devices per CC
   openair0_device rfdevice;
 
+  /// Phase precompensation flag
+  bool no_phase_pre_comp;
+
   void* scopeData;
   // Pointers to hold PDSCH data only for phy simulators
   void *phy_sim_rxdataF;
