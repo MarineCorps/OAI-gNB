@@ -45,10 +45,7 @@ void nr_fill_prach(PHY_VARS_gNB *gNB,
                    int SFN,
                    int Slot,
                    nfapi_nr_prach_pdu_t *prach_pdu){}
-void nr_fill_prach_ru(RU_t *ru,
-                      int SFN,
-                      int Slot,
-                      nfapi_nr_prach_pdu_t *prach_pdu){}
+void nr_fill_prach_ru(RU_t *ru,prach_item_t *gnb_prach){}
                    
 void  nr_phy_config_request(NR_PHY_Config_t *gNB){}
 

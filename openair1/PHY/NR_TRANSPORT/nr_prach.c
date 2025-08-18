@@ -36,11 +36,11 @@
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_prach.h"
 
-void init_prach_list(prach_list_t *l, prach_type_t t)
+void init_prach_list(prach_list_t *l)
 {
   pthread_mutex_init(&l->prach_list_mutex, NULL);
   for (prach_item_t *p = l->list; p < l->list + NUMBER_OF_NR_PRACH_MAX; p++)
-    *p = (prach_item_t){.frame = -1, .slot = -1, .type = t};
+    *p = (prach_item_t){.frame = -1, .slot = -1};
 }
 
 void free_nr_prach_entry(prach_list_t *l, prach_item_t *p)
@@ -84,9 +84,10 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
     LOG_W(PHY, "no free space for a new detected rach, discarding\n");
     return NULL;
   }
-  *prach = (prach_item_t){.frame = SFN, .slot = Slot, .type = prach_upper};
-  const int format = prach_pdu->prach_format;
-  prach->num_slots = (format < 4) ? get_long_prach_dur(format, gNB->frame_parms.numerology_index) : 1;
+  const int fmt = prach_pdu->prach_format;
+  *prach = (prach_item_t){.frame = SFN,
+                          .slot = Slot,
+                          .num_slots = (fmt < 4) ? get_long_prach_dur(fmt, gNB->frame_parms.numerology_index) : 1};
   if (gNB->common_vars.beam_id) {
     int n_symb = get_nr_prach_duration(prach_pdu->prach_format);
     AssertFatal(prach_pdu->beamforming.dig_bf_interface < NFAPI_MAX_NUM_BG_IF,
@@ -109,23 +110,14 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
   return prach;
 }
 
-void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beams)
+void nr_fill_prach_ru(RU_t *ru, prach_item_t *gnb_prach)
 {
-  prach_item_t *prach = find_nr_prach(&ru->prach_list, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  prach_item_t *prach = find_nr_prach(&ru->prach_list, gnb_prach->frame, gnb_prach->slot, SEARCH_EXIST_OR_FREE);
   if (!prach) {
     LOG_E(PHY, "no prach memory found\n");
     return;
   }
-  const int fmt = prach_pdu->prach_format;
-  *prach = (prach_item_t){.frame = SFN,
-                          .slot = Slot,
-                          .type = prach_lower,
-                          .num_slots = (fmt < 4) ? get_long_prach_dur(fmt, ru->nr_frame_parms->numerology_index) : 1,
-                          .lower = {.fmt = fmt,
-                                    .numRA = prach_pdu->num_ra,
-                                    .prachStartSymbol = prach_pdu->prach_start_symbol,
-                                    .num_prach_ocas = prach_pdu->num_prach_ocas}};
-  memcpy(prach->beams, beams, sizeof(prach->beams));
+  *prach = *gnb_prach;
 }
 
 void rx_nr_prach_ru(RU_t *ru,

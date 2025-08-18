@@ -1218,15 +1218,15 @@ void *ru_thread(void *param)
             T_INT(0),
             T_BUFFER(&ru->common.rxdata[0][fp->get_samples_slot_timestamp(proc->tti_rx - 1, fp, 0) /*-ru->N_TA_offset*/],
                      (fp->get_samples_per_slot(proc->tti_rx - 1, fp) + fp->get_samples_per_slot(proc->tti_rx, fp)) * 4));
-          int N_dur = get_nr_prach_duration(p->lower.fmt);
+          int N_dur = get_nr_prach_duration(p->pdu.prach_format);
 
-          for (int prach_oc = 0; prach_oc < p->lower.num_prach_ocas; prach_oc++) {
-            int prachStartSymbol = p->lower.prachStartSymbol + prach_oc * N_dur;
+          for (int prach_oc = 0; prach_oc < p->pdu.num_prach_ocas; prach_oc++) {
+            int prachStartSymbol = p->pdu.prach_start_symbol + prach_oc * N_dur;
             int beam_id = p->beams[prach_oc];
             //comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
             rx_nr_prach_ru(ru,
-                           p->lower.fmt, // could also use format
-                           p->lower.numRA,
+                           p->pdu.prach_format, // could also use format
+                           p->pdu.num_ra,
                            beam_id,
                            prachStartSymbol,
                            p->slot,

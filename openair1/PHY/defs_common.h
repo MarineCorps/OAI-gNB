@@ -1001,25 +1001,11 @@ typedef struct {
 // TODO will be removed in a late commit
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface_scf.h"
 #define NUMBER_OF_NR_PRACH_MAX 8
-typedef enum { prach_upper, prach_lower } prach_type_t;
 typedef struct {
   int frame;
   int slot;
   int num_slots; // prach duration in slots
   int beams[NFAPI_MAX_NUM_BG_IF];
-  prach_type_t type;
-  union {
-    struct {
-      // identifier for concurrent beams
-      nfapi_nr_prach_pdu_t pdu;
-    } upper;
-    struct {
-      int fmt;
-      int numRA;
-      int prachStartSymbol;
-      int num_prach_ocas;
-    } lower;
-  };
   nfapi_nr_prach_pdu_t pdu;
 } prach_item_t;
 
@@ -1029,7 +1015,7 @@ typedef struct {
   /// mutex for prach_list access
   pthread_mutex_t prach_list_mutex;
 } prach_list_t;
-void init_prach_list(prach_list_t *, prach_type_t);
+void init_prach_list(prach_list_t *);
 
 static inline void init_abort(decode_abort_t *ab)
 {

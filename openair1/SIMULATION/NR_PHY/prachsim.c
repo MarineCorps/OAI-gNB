@@ -774,9 +774,10 @@ int main(int argc, char **argv){
   for (int i = 0; i < ru->nb_rx; ++i)
     rxsigF[i] = (c16_t *)ru->prach_rxsigF[prachOccasion][i];
   if (n_frames == 1)
-    printf("ncs %d,num_seq %d\n",
-           prach_pdu->num_cs,
-           prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value);
+    LOG_I(PHY,
+          "ncs %d,num_seq %d\n",
+          prach_pdu->num_cs,
+          prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value);
   rx_nr_prach(gNB, prach_pdu, prachOccasion, frame, subframe, &preamble_rx, &preamble_energy, &preamble_delay, rxsigF);
 
   //        printf(" preamble_energy %d preamble_rx %d preamble_tx %d \n", preamble_energy, preamble_rx, preamble_tx);

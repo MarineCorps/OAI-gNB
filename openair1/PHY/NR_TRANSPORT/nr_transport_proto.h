@@ -222,7 +222,7 @@ void rx_nr_prach_ru(RU_t *ru,
                     int frame,
                     int subframe);
 
-void nr_fill_prach_ru(RU_t *ru,int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beam_nb);
+void nr_fill_prach_ru(RU_t *ru,prach_item_t * );
 prach_item_t *find_nr_prach(prach_list_t *, int frame, int slot, find_type_t type);
 void nr_fill_pucch(PHY_VARS_gNB *gNB,
                    int frame,
