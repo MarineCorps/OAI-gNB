@@ -1658,7 +1658,7 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
     drb->id = drb2Mod->dRB_ID;
     // PDCP Config (O)
     if (drb2Mod->pDCP_Configuration) {
-      drb->pdcp_config = malloc_or_fail(sizeof(*drb->pdcp_config));
+      drb->pdcp_config = calloc_or_fail(1, sizeof(*drb->pdcp_config));
       CHECK_E1AP_DEC(e1_decode_pdcp_config(drb->pdcp_config, drb2Mod->pDCP_Configuration));
     }
     // SDAP Config (O)
