@@ -1605,3 +1605,51 @@ void rrc_gNB_send_NGAP_HANDOVER_REQUIRED(gNB_RRC_INST *rrc,
   NGAP_HANDOVER_REQUIRED(msg_p) = msg;
   itti_send_msg_to_task(TASK_NGAP, rrc->module_id, msg_p);
 }
+
+int rrc_gNB_process_NGAP_DL_RAN_STATUS_TRANSFER(MessageDef *msg_p, instance_t instance)
+{
+  const ngap_ran_status_transfer_t *cmd = &NGAP_DL_RAN_STATUS_TRANSFER(msg_p);
+  gNB_RRC_INST *rrc = RC.nrrrc[instance];
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, cmd->gnb_ue_ngap_id);
+
+  if (!ue_context_p) {
+    LOG_E(NR_RRC, "[gNB %ld] No UE context for gNB_ue_ngap_id %u\n", instance, cmd->gnb_ue_ngap_id);
+    return -1;
+  }
+
+  gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
+  LOG_I(NR_RRC,
+        "[gNB %ld] DL RAN Status Transfer for gNB_ue_ngap_id %u AMF_UE_NGAP_ID %lu\n",
+        instance,
+        cmd->gnb_ue_ngap_id,
+        cmd->amf_ue_ngap_id);
+
+  for (int i = 0; i < cmd->ran_status.nb_drb; ++i) {
+    const ngap_drb_status_t *s = &cmd->ran_status.drb_status_list[i];
+    LOG_I(NR_RRC,
+          "DL RAN Status Transfer - DRB ID %d:\n"
+          "  UL COUNT: PDCP SN = %u, HFN = %u (%s)\n"
+          "  DL COUNT: PDCP SN = %u, HFN = %u (%s)\n",
+          s->drb_id,
+          s->ul_count.pdcp_sn,
+          s->ul_count.hfn,
+          s->ul_count.sn_len == NGAP_SN_LENGTH_18 ? "18-bit" : "12-bit",
+          s->dl_count.pdcp_sn,
+          s->dl_count.hfn,
+          s->dl_count.sn_len == NGAP_SN_LENGTH_18 ? "18-bit" : "12-bit");
+
+    // Send to PDCP layer
+    for (int j = 0; j < MAX_DRBS_PER_UE; j++) {
+      if (UE->established_drbs[j].drb_id == s->drb_id)
+        nr_pdcp_update_ran_status(UE->rrc_ue_id,
+                                  s->drb_id,
+                                  s->ul_count.pdcp_sn,
+                                  s->ul_count.hfn,
+                                  s->dl_count.pdcp_sn,
+                                  s->dl_count.hfn,
+                                  s->dl_count.sn_len == NGAP_SN_LENGTH_18);
+    }
+  }
+
+  return 0;
+}

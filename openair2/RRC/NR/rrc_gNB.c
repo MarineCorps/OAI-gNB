@@ -2854,6 +2854,10 @@ void *rrc_gnb_task(void *args_p) {
         rrc_gNB_process_NGAP_PDUSESSION_RELEASE_COMMAND(msg_p, instance);
         break;
 
+      case NGAP_DL_RAN_STATUS_TRANSFER:
+        rrc_gNB_process_NGAP_DL_RAN_STATUS_TRANSFER(msg_p, instance);
+        break;
+
       /* Messages from F1AP task */
       case F1AP_SETUP_REQ:
         AssertFatal(!NODE_IS_DU(RC.nrrrc[instance]->node_type), "should not receive F1AP_SETUP_REQUEST in DU!\n");

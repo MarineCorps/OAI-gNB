@@ -108,4 +108,6 @@ void rrc_gNB_send_NGAP_HANDOVER_NOTIFY(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE);
 
 int rrc_gNB_send_NGAP_ul_ran_status_transfer(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const int n_to_mod, const e1_pdcp_status_info_t *pdcp_status);
 
+int rrc_gNB_process_NGAP_DL_RAN_STATUS_TRANSFER(MessageDef *msg_p, instance_t instance);
+
 #endif
