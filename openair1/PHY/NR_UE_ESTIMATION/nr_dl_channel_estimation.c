@@ -852,7 +852,7 @@ void nr_pdcch_channel_estimation(PHY_VARS_NR_UE *ue,
   c16_t pilot[(nb_rb_coreset + dmrs_ref) * 3] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
   const uint32_t *gold = nr_gold_pdcch(ue->frame_parms.N_RB_DL, ue->frame_parms.symbols_per_slot, scrambling_id, slot, symbol);
-  nr_pdcch_dmrs_rx(ue, slot, gold, pilot, 2000, (nb_rb_coreset + dmrs_ref));
+  nr_pdcch_dmrs_rx(gold, pilot, 2000, (nb_rb_coreset + dmrs_ref));
 
   for (aarx=0; aarx<ue->frame_parms.nb_antennas_rx; aarx++) {
 
