@@ -291,6 +291,18 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
                                 &security_parameters);
       }
 
+      // PDCP Status Information requested
+      if (to_modif->pdcp_sn_status_requested) {
+        modified->pdcp_status = malloc_or_fail(sizeof(*modified->pdcp_status));
+        nr_pdcp_count_t dl_count = {0};
+        nr_pdcp_count_t ul_count = {0};
+        nr_pdcp_get_drb_count_values(req->gNB_cu_cp_ue_id, to_modif->id, &ul_count, &dl_count);
+        modified->pdcp_status->dl_count.hfn = dl_count.hfn;
+        modified->pdcp_status->dl_count.sn = dl_count.sn;
+        modified->pdcp_status->ul_count.hfn = ul_count.hfn;
+        modified->pdcp_status->ul_count.sn = ul_count.sn;
+      }
+
       if (f1inst < 0) // no F1-U?
         continue; // nothing to do
 
@@ -300,6 +312,7 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
         in_addr_t addr = to_modif->DlUpParamList[k].tl_info.tlAddress;
         GtpuUpdateTunnelOutgoingAddressAndTeid(f1inst, req->gNB_cu_cp_ue_id, to_modif->id, addr, to_modif->DlUpParamList[k].tl_info.teId);
       }
+
     }
   }
 
