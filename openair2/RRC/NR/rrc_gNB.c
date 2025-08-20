@@ -2091,20 +2091,34 @@ static void e1_send_bearer_updates(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, int n, f
     .gNB_cu_up_ue_id = UE->rrc_ue_id,
   };
 
-  for (int i = 0; i < n; i++) {
-    const f1ap_drb_setup_t *drb_f1 = &drbs[i];
-    rrc_pdu_session_param_t *pdu_ue = find_pduSession_from_drbId(UE, drb_f1->id);
-    if (pdu_ue == NULL) {
-      LOG_E(RRC, "UE %d: UE Context Modif Response: no PDU session for DRB ID %d\n", UE->rrc_ue_id, drb_f1->id);
-      continue;
+  bool is_inter_cu_ho = UE->ho_context && UE->ho_context->source && !UE->ho_context->target;
+  for (int i = 0; i < MAX_DRBS_PER_UE; i++) {
+    int drb_id = i + 1;
+    DRB_nGRAN_to_mod_t drb_to_mod = {0};
+    if (n > 0) {
+      /* DRBs to Setup in F1 UE Context Modifcation Response */
+      if (i == n)
+        break;
+      const f1ap_drb_setup_t *drb_f1 = &drbs[i];
+      drb_id = drb_f1->id;
+      fill_e1_bearer_modif(&drb_to_mod, drb_f1);
+    } else if (is_inter_cu_ho) {
+      /* On-going handover: send PDCP Status Request */
+      if (UE->established_drbs[i].status == DRB_INACTIVE)
+        continue;
+      drb_to_mod.id = drb_id;
+      // PDCP SN Status Request
+      drb_to_mod.pdcp_sn_status_requested = true;
+      LOG_I(NR_RRC, "PDCP Status requested (drb_id=%d)\n", drb_id);
     }
-    pdu_session_to_mod_t *pdu_e1 = find_or_next_pdu_session(&req, pdu_ue->param.pdusession_id);
-    DevAssert(pdu_e1 != NULL);
-    pdu_e1->sessionId = pdu_ue->param.pdusession_id;
-    DRB_nGRAN_to_mod_t *drb_e1 = &pdu_e1->DRBnGRanModList[pdu_e1->numDRB2Modify];
-    /* Fill E1 bearer context modification */
-    fill_e1_bearer_modif(drb_e1, drb_f1);
-    pdu_e1->numDRB2Modify += 1;
+    rrc_pdu_session_param_t *pdu = find_pduSession_from_drbId(UE, drb_id);
+    if (!pdu)
+      continue;
+    pdu_session_to_mod_t *to_mod = find_or_next_pdu_session(&req, pdu->param.pdusession_id);
+    DevAssert(to_mod);
+    to_mod->sessionId = pdu->param.pdusession_id;
+    // Fill E1 DRB to Modify item
+    to_mod->DRBnGRanModList[to_mod->numDRB2Modify++] = drb_to_mod;
   }
   DevAssert(req.numPDUSessionsMod > 0);
   DevAssert(req.numPDUSessions == 0);
@@ -2300,7 +2314,8 @@ static void rrc_CU_process_ue_context_modification_response(MessageDef *msg_p, i
   }
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
 
-  if (resp->drbs_len > 0) {
+  bool is_inter_cu_ho = UE->ho_context && UE->ho_context->source && !UE->ho_context->target;
+  if (resp->drbs_len > 0 || is_inter_cu_ho) {
     store_du_f1u_tunnel(resp->drbs, resp->drbs_len, UE);
     e1_send_bearer_updates(rrc, UE, resp->drbs_len, resp->drbs);
   }
