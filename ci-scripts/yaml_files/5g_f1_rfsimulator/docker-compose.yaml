@@ -111,6 +111,7 @@ services:
             public_net:
                 ipv4_address: 192.168.71.150
         volumes:
+          - ../../conf_files/neighbour-config.conf:/opt/oai-gnb/etc/neighbour-config.conf
           - ../../conf_files/gnb-cu.sa.band78.106prb.conf:/opt/oai-gnb/etc/gnb.conf
         healthcheck:
             test: /bin/bash -c "pgrep nr-softmodem"
