@@ -422,17 +422,17 @@ bwp_info_t get_pdsch_bwp_start_size(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   return bwp_info;
 }
 
-static bool allocate_dl_retransmission(module_id_t module_id,
-                                       frame_t frame,
-                                       slot_t slot,
+static bool allocate_dl_retransmission(gNB_MAC_INST *nr_mac,
+                                       post_process_pdsch_t *pp_pdsch,
                                        int *n_rb_sched,
                                        NR_UE_info_t *UE,
                                        int beam_idx,
                                        int current_harq_pid)
 {
-
+  frame_t frame = pp_pdsch->frame;
+  slot_t slot = pp_pdsch->slot;
   int CC_id = 0;
-  gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
+
   const NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels->ServingCellConfigCommon;
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
@@ -578,7 +578,8 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   new_sched.rbStart = rbStart - bwp_info.bwpStart;
   new_sched.pucch_allocation = alloc;
   new_sched.bwp_info = bwp_info;
-  sched_ctrl->sched_pdsch = new_sched;
+
+  post_process_dlsch(nr_mac, pp_pdsch, UE, &new_sched);
 
   /* retransmissions: directly allocate */
   *n_rb_sched -= new_sched.rbSize;
@@ -606,15 +607,16 @@ static int comparator(const void *p, const void *q)
   return 0;
 }
 
-static void pf_dl(module_id_t module_id,
-                  frame_t frame,
-                  slot_t slot,
+static void pf_dl(gNB_MAC_INST *mac,
+                  post_process_pdsch_t *pp_pdsch,
                   NR_UE_info_t **UE_list,
                   int max_num_ue,
                   int num_beams,
                   int n_rb_sched[num_beams])
 {
-  gNB_MAC_INST *mac = RC.nrmac[module_id];
+  frame_t frame = pp_pdsch->frame;
+  slot_t slot = pp_pdsch->slot;
+
   NR_ServingCellConfigCommon_t *scc=mac->common_channels[0].ServingCellConfigCommon;
   // UEs that could be scheduled
   UEsched_t UE_sched[MAX_MOBILES_PER_GNB + 1] = {0};
@@ -633,14 +635,17 @@ static void pf_dl(module_id_t module_id,
     if (!nr_mac_ue_is_active(UE))
       continue;
 
-    const NR_mac_dir_stats_t *stats = &UE->mac_stats.dl;
+    NR_mac_dir_stats_t *stats = &UE->mac_stats.dl;
     /* get the PID of a HARQ process awaiting retrnasmission, or -1 otherwise */
     int harq_pid = sched_ctrl->retrans_dl_harq.head;
 
     /* Calculate Throughput */
     const float a = 0.01f;
-    const uint32_t b = UE->mac_stats.dl.current_bytes;
+    const uint32_t b = stats->current_bytes;
     UE->dl_thr_ue = (1 - a) * UE->dl_thr_ue + a * b;
+
+    stats->current_bytes = 0;
+    stats->current_rbs = 0;
 
     /* Check if this UE should get TA (every 100 frames). If we add the CE,
      * ta_apply will be reset */
@@ -659,7 +664,7 @@ static void pf_dl(module_id_t module_id,
       bool sch_ret = beam.idx >= 0;
       /* Allocate retransmission */
       if (sch_ret)
-        sch_ret = allocate_dl_retransmission(module_id, frame, slot, &n_rb_sched[beam.idx], UE, beam.idx, harq_pid);
+        sch_ret = allocate_dl_retransmission(mac, pp_pdsch, &n_rb_sched[beam.idx], UE, beam.idx, harq_pid);
       if (!sch_ret) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] DL retransmission could not be allocated\n", UE->rnti, frame, slot);
         reset_beam_status(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, beam.new_beam);
@@ -876,7 +881,7 @@ static void pf_dl(module_id_t module_id,
                   &sched_pdsch.tb_size,
                   &sched_pdsch.rbSize);
 
-    sched_ctrl->sched_pdsch = sched_pdsch;
+    post_process_dlsch(mac, pp_pdsch, iterator->UE, &sched_pdsch);
 
     /* transmissions: directly allocate */
     n_rb_sched[beam.idx] -= sched_pdsch.rbSize;
@@ -889,9 +894,9 @@ static void pf_dl(module_id_t module_id,
   }
 }
 
-static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t slot)
+static void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
 {
-  gNB_MAC_INST *mac = RC.nrmac[module_id];
+  module_id_t module_id = 0;
   NR_UEs_t *UE_info = &mac->UE_info;
 
   if (UE_info->connected_ue_list[0] == NULL)
@@ -905,7 +910,7 @@ static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
     n_rb_sched[i] = bw;
 
   /* Retrieve amount of data to send for this UE */
-  nr_store_dlsch_buffer(module_id, frame, slot);
+  nr_store_dlsch_buffer(module_id, pp_pdsch->frame, pp_pdsch->slot);
 
   int average_agg_level = 4; // TODO find a better estimation
   int max_sched_ues = bw / (average_agg_level * NR_NB_REG_PER_CCE);
@@ -914,7 +919,7 @@ static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
   max_sched_ues = min(max_sched_ues, MAX_DCI_CORESET);
 
   /* proportional fair scheduling algorithm */
-  pf_dl(module_id, frame, slot, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
+  pf_dl(mac, pp_pdsch, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
 }
 
 nr_pp_impl_dl nr_init_dlsch_preprocessor(int CC_id)
@@ -1003,7 +1008,7 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
 void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE_info_t *UE, NR_sched_pdsch_t *sched_pdsch)
 {
   int CC_id = 0;
-  int module_id = 0;
+  int module_id = nr_mac->Mod_id;
   frame_t frame = pdsch->frame;
   slot_t slot = pdsch->slot;
 
@@ -1371,6 +1376,8 @@ void nr_schedule_ue_spec(module_id_t module_id,
                          nfapi_nr_tx_data_request_t *TX_req)
 {
   gNB_MAC_INST *gNB_mac = RC.nrmac[module_id];
+  int CC_id = 0;
+
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   AssertFatal(pthread_mutex_trylock(&gNB_mac->sched_lock) == EBUSY,
               "this function should be called with the scheduler mutex locked\n");
@@ -1378,34 +1385,14 @@ void nr_schedule_ue_spec(module_id_t module_id,
   if (!is_dl_slot(slot, &gNB_mac->frame_structure))
     return;
 
-  /* PREPROCESSOR */
-  gNB_mac->pre_processor_dl(module_id, frame, slot);
-  const int CC_id = 0;
   NR_ServingCellConfigCommon_t *scc = gNB_mac->common_channels[CC_id].ServingCellConfigCommon;
-  NR_UEs_t *UE_info = &gNB_mac->UE_info;
-  nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
-
-  post_process_pdsch_t pdsch = { frame, slot, dl_req, TX_req };
-
   const NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
   gNB_mac->mac_stats.total_prb_aggregate += NRRIV2BW(initialDL->locationAndBandwidth, MAX_BWP_SIZE);
 
-  UE_iterator(UE_info->connected_ue_list, UE) {
-    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
+  post_process_pdsch_t pdsch = { frame, slot, dl_req, TX_req };
 
-    if (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test)
-      continue;
+  /* PREPROCESSOR */
+  gNB_mac->pre_processor_dl(gNB_mac, &pdsch);
 
-    NR_sched_pdsch_t *sched_pdsch = &sched_ctrl->sched_pdsch;
-    UE->mac_stats.dl.current_bytes = 0;
-    UE->mac_stats.dl.current_rbs = 0;
-
-    if (sched_pdsch->rbSize <= 0)
-      continue;
-
-    post_process_dlsch(gNB_mac, &pdsch, UE, sched_pdsch);
-
-    /* mark UE as scheduled */
-    sched_pdsch->rbSize = 0;
-  }
 }

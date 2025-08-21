@@ -55,9 +55,11 @@ uint32_t target_dl_bw = 50;
 uint64_t dlsch_slot_bitmap = (1<<1);
 
 /* schedules whole bandwidth for first user, all the time */
-void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
+void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
 {
-  gNB_MAC_INST *mac = RC.nrmac[module_id];
+  frame_t frame = pp_pdsch->frame;
+  slot_t slot = pp_pdsch->slot;
+
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   int slot_period = slot % mac->frame_structure.numb_slots_period;
   if (!is_xlsch_in_slot(dlsch_slot_bitmap, slot_period))
@@ -188,7 +190,7 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
                                        target_dl_Nl)
                         >> 3;
 
-  sched_ctrl->sched_pdsch = sched_pdsch;
+  post_process_dlsch(mac, pp_pdsch, UE, &sched_pdsch);
 
   /* mark the corresponding RBs as used */
   for (int rb = 0; rb < sched_pdsch.rbSize; rb++)

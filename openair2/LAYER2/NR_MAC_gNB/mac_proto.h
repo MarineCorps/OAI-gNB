@@ -145,7 +145,7 @@ uint16_t nr_mac_compute_RIV(uint16_t N_RB_DL, uint16_t RBstart, uint16_t Lcrbs);
 
 /* \brief preprocessor for phytest: schedules UE_id 0 with fixed MCS on all
  * freq resources */
-void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot);
+void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch);
 /* \brief UL preprocessor for phytest: schedules UE_id 0 with fixed MCS on a
  * fixed set of resources */
 void nr_ul_preprocessor_phytest(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch);
@@ -504,5 +504,6 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
 
 void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group);
 
+void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE_info_t *UE, NR_sched_pdsch_t *sched_pdsch);
 void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE_info_t *UE, NR_sched_pusch_t *sched_pusch);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

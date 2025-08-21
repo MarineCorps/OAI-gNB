@@ -633,8 +633,6 @@ typedef struct {
   /// PHR info: nominal UE transmit power levels (dBm)
   int pcmax;
 
-  /// Sched PDSCH: scheduling decisions, copied into HARQ and cleared every TTI
-  NR_sched_pdsch_t sched_pdsch;
   /// UE-estimated maximum MCS (from CSI-RS)
   uint8_t dl_max_mcs;
 
@@ -847,7 +845,7 @@ typedef struct {
 struct gNB_MAC_INST_s;
 typedef struct gNB_MAC_INST_s gNB_MAC_INST;
 
-typedef void (*nr_pp_impl_dl)(module_id_t mod_id, frame_t frame, slot_t slot);
+typedef void (*nr_pp_impl_dl)(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pp_pdsch);
 typedef void (*nr_pp_impl_ul)(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp_pusch);
 
 typedef struct f1_config_t {
