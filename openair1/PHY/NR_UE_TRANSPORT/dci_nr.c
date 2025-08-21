@@ -41,6 +41,7 @@
 #include "common/utils/nr/nr_common.h"
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 #include "openair1/PHY/NR_REFSIG/nr_refsig_common.h"
+#include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
 
 #include "assertions.h"
 #include "T.h"
@@ -72,10 +73,10 @@
 #define RE_PER_RB_OUT_DMRS 9
 
 static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
-                                              c16_t llr[][coreset_nbr_rb * RE_PER_RB_OUT_DMRS],
+                                              c16_t *llr,
                                               c16_t *e_rx,
                                               uint8_t coreset_time_dur,
-                                              uint8_t reg_bundle_size_L,
+                                              uint8_t reg_bundle_size_L_in,
                                               uint8_t coreset_interleaver_size_R,
                                               uint8_t n_shift,
                                               uint8_t number_of_candidates,
@@ -118,17 +119,11 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
    |   REG 0  (bundle 0)             bundle 0         bundle 0
 
   */
-
-  uint32_t coreset_C = 0;
-  int coreset_interleaved = 0;
   const int N_regs = coreset_nbr_rb * coreset_time_dur;
-
-  if (reg_bundle_size_L != 0) { // interleaving will be done only if reg_bundle_size_L != 0
-    coreset_interleaved = 1;
-    coreset_C = (uint32_t)(N_regs / (coreset_interleaver_size_R * reg_bundle_size_L));
-  } else {
-    reg_bundle_size_L = 6;
-  }
+  /* interleaving will be done only if reg_bundle_size_L != 0 */
+  const int coreset_C = (reg_bundle_size_L_in != 0) ? (uint32_t)(N_regs / (coreset_interleaver_size_R * reg_bundle_size_L_in)) : 0;
+  const int coreset_interleaved = (reg_bundle_size_L_in != 0) ? 1 : 0;
+  const int reg_bundle_size_L = (reg_bundle_size_L_in != 0) ? reg_bundle_size_L_in : 6;
 
   int B_rb = reg_bundle_size_L / coreset_time_dur; // nb of RBs occupied by each REG bundle
   int num_bundles_per_cce = 6 / reg_bundle_size_L;
@@ -173,7 +168,7 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
       for (int cce_count = 0; cce_count < L[c_id]; cce_count++) {
         for (int k = 0; k < NR_NB_REG_PER_CCE / reg_bundle_size_L; k++) { // loop over REG bundles
           int f = f_bundle_j_list_ord[c_id][k + NR_NB_REG_PER_CCE * cce_count / reg_bundle_size_L];
-          c16_t *in = llr[symbol_idx] + f * B_rb * RE_PER_RB_OUT_DMRS;
+          c16_t *in = llr + (f * B_rb + symbol_idx * coreset_nbr_rb) * RE_PER_RB_OUT_DMRS;
           // loop over the RBs of the bundle
           memcpy(e_rx + RE_PER_RB_OUT_DMRS * rb_count, in, B_rb * RE_PER_RB_OUT_DMRS * sizeof(*e_rx));
           rb_count += B_rb;
@@ -200,16 +195,15 @@ static void nr_pdcch_llr(uint32_t sz, c16_t *rxF, c16_t *llr)
 
 // This function will extract the mapped DM-RS PDCCH REs as per 38.211 Section 7.4.1.3.2 (Mapping to physical resources)
 static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
-                                        uint32_t coreset_nbr_rb,
                                         c16_t rxdataF[][rxdataF_sz],
                                         int32_t est_size,
                                         c16_t dl_ch_estimates[][est_size],
                                         int arraySz,
                                         c16_t rxdataF_ext[][arraySz],
                                         c16_t dl_ch_estimates_ext[][arraySz],
-                                        int symbol,
                                         NR_DL_FRAME_PARMS *frame_parms,
                                         uint8_t *coreset_freq_dom,
+                                        uint32_t coreset_nbr_rb,
                                         uint32_t n_BWP_start)
 {
   /*
@@ -224,8 +218,8 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
    */
 
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
-    const c16_t *dl_ch0 = dl_ch_estimates[aarx] + frame_parms->ofdm_symbol_size * symbol;
-    c16_t *rxFbase = rxdataF[aarx] + frame_parms->ofdm_symbol_size * symbol;
+    c16_t *dl_ch0 = dl_ch_estimates[aarx];
+    c16_t *rxFbase = rxdataF[aarx];
     LOG_DDD("dl_ch0 = &dl_ch_estimates[aarx = (%d)][0]\n", aarx);
 
     c16_t *dl_ch0_ext = dl_ch_estimates_ext[aarx];
@@ -326,92 +320,222 @@ static void nr_pdcch_detection_mrc(int sz, c16_t rxdataF_comp[][sz])
   }
 }
 
-void nr_rx_pdcch(PHY_VARS_NR_UE *ue,
-                 const UE_nr_rxtx_proc_t *proc,
-                 int32_t pdcch_est_size,
-                 c16_t pdcch_dl_ch_estimates[][pdcch_est_size],
-                 c16_t *pdcch_e_rx,
-                 fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
-                 c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
+/* Produce LLRs from received PDCCH signal */
+static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
+                               const UE_nr_rxtx_proc_t *proc,
+                               int symbol,
+                               int rel_symb_monOcc,
+                               int ss_idx,
+                               nr_phy_data_t *phy_data,
+                               int llr_size_symbol,
+                               c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
+                               c16_t llr[llr_size_symbol])
 {
-  NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
+  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
+  fapi_nr_coreset_t *coreset = &phy_pdcch_config->pdcch_config[ss_idx].coreset;
+  int32_t pdcch_est_size = ((((fp->ofdm_symbol_size + LTE_CE_FILTER_LENGTH) + 15) / 16) * 16);
+  __attribute__((aligned(16))) c16_t pdcch_dl_ch_estimates[fp->nb_antennas_rx][pdcch_est_size];
 
-  int n_rb,rb_offset;
-  get_coreset_rballoc(rel15->coreset.frequency_domain_resource,&n_rb,&rb_offset);
-  const int antRx = frame_parms->nb_antennas_rx;
+  nr_pdcch_channel_estimation(ue,
+                              proc,
+                              symbol,
+                              coreset,
+                              fp->first_carrier_offset,
+                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart,
+                              pdcch_est_size,
+                              pdcch_dl_ch_estimates,
+                              rxdataF);
 
-  // Pointer to llrs
-  const int symb_size = n_rb * RE_PER_RB_OUT_DMRS;
-  c16_t llr[rel15->coreset.duration][symb_size];
+  const int32_t rx_size = ((4 * fp->N_RB_DL * 12 + 31) >> 5) << 5;
+  __attribute__((aligned(32))) c16_t rxdataF_ext[fp->nb_antennas_rx][rx_size];
+  __attribute__((aligned(32))) c16_t rxdataF_comp[fp->nb_antennas_rx][rx_size];
+  __attribute__((aligned(32))) c16_t pdcch_dl_ch_estimates_ext[fp->nb_antennas_rx][rx_size];
+  memset(rxdataF_comp, 0, sizeof(rxdataF_comp));
 
-  LOG_D(NR_PHY_DCI,
-        "pdcch coreset: freq %x, n_rb %d, rb_offset %d\n",
-        rel15->coreset.frequency_domain_resource[0],
-        n_rb,
-        rb_offset);
-  for (int s = 0; s < rel15->coreset.duration; s++) {
-    LOG_D(NR_PHY_DCI, "in nr_pdcch_extract_rbs_single(rxdataF -> rxdataF_ext || dl_ch_estimates -> dl_ch_estimates_ext)\n");
-    const int arraySz = ceil_mod(symb_size, 32);
-    __attribute__((aligned(32))) c16_t rxdataF_ext[antRx][arraySz];
-    __attribute__((aligned(32))) c16_t pdcch_dl_ch_estimates_ext[antRx][arraySz];
-    nr_pdcch_extract_rbs_single(ue->frame_parms.samples_per_slot_wCP,
-                                n_rb,
-                                rxdataF,
-                                pdcch_est_size,
-                                pdcch_dl_ch_estimates,
-                                arraySz,
+  int n_rb;
+  int rb_offset;
+  get_coreset_rballoc(coreset->frequency_domain_resource, &n_rb, &rb_offset);
+
+  nr_pdcch_extract_rbs_single(ue->frame_parms.ofdm_symbol_size,
+                              rxdataF,
+                              pdcch_est_size,
+                              pdcch_dl_ch_estimates,
+                              rx_size,
+                              rxdataF_ext,
+                              pdcch_dl_ch_estimates_ext,
+                              fp,
+                              coreset->frequency_domain_resource,
+                              n_rb,
+                              phy_pdcch_config->pdcch_config[ss_idx].BWPStart);
+
+  LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
+  int avg[fp->nb_antennas_rx];
+  nr_channel_level(0, rx_size, pdcch_dl_ch_estimates_ext, fp->nb_antennas_rx, 1, avg, n_rb * RE_PER_RB_OUT_DMRS);
+  int avgs = avg[0];
+  for (int i = 1; i < fp->nb_antennas_rx; i++)
+      avgs = cmax(avgs, avg[i]);
+  const int log2_maxh = (log2_approx(avgs) / 2) + 5; //+frame_parms->nb_antennas_rx;
+
+  nr_pdcch_channel_compensation(rx_size,
                                 rxdataF_ext,
                                 pdcch_dl_ch_estimates_ext,
-                                rel15->coreset.StartSymbolIndex + s,
-                                frame_parms,
-                                rel15->coreset.frequency_domain_resource,
-                                rel15->BWPStart);
+                                rxdataF_comp,
+                                fp->nb_antennas_rx,
+                                log2_maxh); // log2_maxh+I0_shift
 
-    LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
-    // compute channel level based on ofdm symbol 0
-    int avg[antRx];
-    nr_channel_level(0, arraySz, pdcch_dl_ch_estimates_ext, antRx, 1, avg, n_rb);
-    int avgs = avg[0];
-    for (int i = 1; i < antRx; i++)
-      avgs = cmax(avgs, avg[i]);
-    uint8_t log2_maxh = (log2_approx(avgs) / 2) + 5; //+antRx;
+  UEscopeCopy(ue, pdcchRxdataF_comp, rxdataF_comp, sizeof(struct complex16), fp->nb_antennas_rx, rx_size, 0);
 
-#ifdef UE_DEBUG_TRACE
-    LOG_D(NR_PHY_DCI, "slot %d: pdcch log2_maxh = %d (%d,%d)\n", proc->nr_slot_rx, log2_maxh, avgP[0], avgs);
-#endif
-#if T_TRACER
-    T(T_UE_PHY_PDCCH_ENERGY, T_INT(0), T_INT(0), T_INT(proc->frame_rx % 1024), T_INT(proc->nr_slot_rx), T_INT(avgs));
-#endif
-    LOG_D(NR_PHY_DCI, "we enter nr_pdcch_channel_compensation(log2_maxh=%d)\n", log2_maxh);
-    LOG_D(NR_PHY_DCI, "in nr_pdcch_channel_compensation(rxdataF_ext x dl_ch_estimates_ext -> rxdataF_comp)\n");
-    // compute LLRs for ofdm symbol 0 only
-    __attribute__((aligned(32))) c16_t rxdataF_comp[antRx][arraySz];
-    nr_pdcch_channel_compensation(arraySz,
-                                  rxdataF_ext,
-                                  pdcch_dl_ch_estimates_ext,
-                                  rxdataF_comp,
-                                  antRx,
-                                  log2_maxh); // log2_maxh+I0_shift
-
-    UEscopeCopy(ue, pdcchRxdataF_comp, rxdataF_comp, sizeof(struct complex16), antRx, symb_size, 0);
-
-    if (antRx > 1)
-      nr_pdcch_detection_mrc(arraySz, rxdataF_comp);
-
-    nr_pdcch_llr(symb_size, rxdataF_comp[0], llr[s]);
+  if (fp->nb_antennas_rx > 1) {
+    nr_pdcch_detection_mrc(rx_size, rxdataF_comp);
   }
-  UEscopeCopy(ue, pdcchLlr, llr, sizeof(c16_t), 1, rel15->coreset.duration * symb_size, 0);
 
-  nr_pdcch_demapping_deinterleaving(n_rb,
-                                    llr,
-                                    pdcch_e_rx,
-                                    rel15->coreset.duration,
-                                    rel15->coreset.RegBundleSize,
-                                    rel15->coreset.InterleaverSize,
-                                    rel15->coreset.ShiftIndex,
-                                    rel15->number_of_candidates,
-                                    rel15->CCE,
-                                    rel15->L);
+  nr_pdcch_llr(llr_size_symbol, rxdataF_comp[0], llr);
+}
+
+bool is_start_symbol_in_ss(const fapi_nr_dl_config_dci_dl_pdu_rel15_t *ss, const int symbol)
+{
+  return ((ss->coreset.StartSymbolBitmap >> (NR_SYMBOLS_PER_SLOT - 1 - symbol)) & 1);
+}
+
+int get_pdcch_mon_occasions_slot(const fapi_nr_dl_config_dci_dl_pdu_rel15_t *ss, uint8_t start_symb[NR_SYMBOLS_PER_SLOT])
+{
+  int sum = 0;
+  for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
+    if (is_start_symbol_in_ss(ss, s)) {
+      if (start_symb != NULL)
+        start_symb[sum] = s;
+      sum++;
+    }
+  }
+
+  return sum;
+}
+
+int get_max_pdcch_monOcc(const NR_UE_PDCCH_CONFIG *phy_pdcch_config)
+{
+  int monOcc = 0;
+  for (int ss = 0; ss < phy_pdcch_config->nb_search_space; ss++) {
+    monOcc = max(monOcc, get_pdcch_mon_occasions_slot(&phy_pdcch_config->pdcch_config[ss], NULL));
+  }
+  return monOcc;
+}
+
+static void nr_dci_decoding_procedure(PHY_VARS_NR_UE *ue,
+                                      const UE_nr_rxtx_proc_t *proc,
+                                      c16_t *pdcch_e_rx,
+                                      fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
+                                      fapi_nr_dci_indication_t *dci_ind);
+
+void set_first_last_pdcch_symb(const NR_UE_PDCCH_CONFIG *phy_pdcch_config, int *first_symb, int *last_symb)
+{
+  *first_symb = NR_SYMBOLS_PER_SLOT; // max first pdcch symbol
+  *last_symb = 0; // min last pdcch symbol
+  for (int ss = 0; ss < phy_pdcch_config->nb_search_space; ss++) {
+    for (int symb = 0; symb < NR_SYMBOLS_PER_SLOT; symb++) {
+      if (is_start_symbol_in_ss(&phy_pdcch_config->pdcch_config[ss], symb)) {
+        const int duration = phy_pdcch_config->pdcch_config[ss].coreset.duration;
+        *first_symb = min(*first_symb, symb);
+        *last_symb = max(*last_symb, symb + duration - 1);
+      }
+    }
+  }
+}
+
+/* Generates PDCCH LLRs from received symbol for each Search-Space */
+void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
+                           const UE_nr_rxtx_proc_t *proc,
+                           int symbol,
+                           nr_phy_data_t *phy_data,
+                           int llr_size_symbol,
+                           int num_monitoring_occ,
+                           int max_symb,
+                           c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
+                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol])
+{
+  const NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
+
+  // Loop over search spaces
+  for (int ss_idx = 0; ss_idx < phy_pdcch_config->nb_search_space; ss_idx++) {
+    uint8_t start_symb[NR_SYMBOLS_PER_SLOT] = {0};
+    const int num_monOcc = get_pdcch_mon_occasions_slot(&phy_pdcch_config->pdcch_config[ss_idx], start_symb);
+    // Loop over monitoring occations within the slot in this ss
+    for (int occ = 0; occ < num_monOcc; occ++) {
+      const int first_symb = start_symb[occ];
+      const int last_symb = first_symb + phy_pdcch_config->pdcch_config[ss_idx].coreset.duration;
+      // Decode PDCCH and generate LLR for each ss in this OFDM symbol
+      if ((symbol >= first_symb) && (symbol < last_symb)) {
+        const int rel_symb_monOcc = symbol - first_symb;
+        nr_rx_pdcch_symbol(ue,
+                           proc,
+                           symbol,
+                           rel_symb_monOcc,
+                           ss_idx,
+                           phy_data,
+                           llr_size_symbol,
+                           rxdataF,
+                           &pdcch_llr[ss_idx][occ][rel_symb_monOcc * llr_size_symbol]);
+      }
+    }
+  }
+}
+
+/* Decode DCI from LLRs for each Search-Space and send to MAC */
+void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
+                             int llr_size,
+                             int max_monOcc,
+                             PHY_VARS_NR_UE *ue,
+                             nr_phy_data_t *phy_data,
+                             c16_t llr[phy_data->phy_pdcch_config.nb_search_space][max_monOcc][llr_size])
+{
+  NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
+
+  nr_downlink_indication_t dl_indication;
+  fapi_nr_dci_indication_t dci_ind = {.SFN = proc->frame_rx, .slot = proc->nr_slot_rx};
+
+  for (int ss_idx = 0; ss_idx < phy_pdcch_config->nb_search_space; ss_idx++) {
+    fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15 = &phy_pdcch_config->pdcch_config[ss_idx];
+    uint8_t unused_start_symb[NR_SYMBOLS_PER_SLOT] = {0};
+    const int num_monitoring_occ = get_pdcch_mon_occasions_slot(rel15, unused_start_symb);
+
+    int n_rb;
+    int rb_offset;
+    get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &rb_offset);
+
+    for (int m = 0; m < num_monitoring_occ; m++) {
+      /// PDCCH/DCI e-sequence (input to rate matching).
+      c16_t pdcch_e_rx[NR_MAX_PDCCH_SIZE];
+
+      nr_pdcch_demapping_deinterleaving(n_rb,
+                                        llr[ss_idx][m],
+                                        pdcch_e_rx,
+                                        rel15->coreset.duration,
+                                        rel15->coreset.RegBundleSize,
+                                        rel15->coreset.InterleaverSize,
+                                        rel15->coreset.ShiftIndex,
+                                        rel15->number_of_candidates,
+                                        rel15->CCE,
+                                        rel15->L);
+
+      nr_dci_decoding_procedure(ue, proc, pdcch_e_rx, rel15, &dci_ind);
+    }
+  }
+
+  for (int i = 0; i < dci_ind.number_of_dcis; i++) {
+    LOG_D(PHY,
+          "Frame.slot: %d.%d: DCI %i of %d total DCIs found --> rnti %x : format %d\n",
+          proc->frame_rx,
+          proc->nr_slot_rx,
+          i + 1,
+          dci_ind.number_of_dcis,
+          dci_ind.dci_list[i].rnti,
+          dci_ind.dci_list[i].dci_format);
+  }
+
+  /* Send to MAC */
+  nr_fill_dl_indication(&dl_indication, &dci_ind, NULL, proc, ue, phy_data);
+  ue->if_inst->dl_indication(&dl_indication);
+  phy_pdcch_config->nb_search_space = 0;
 }
 
 static void nr_pdcch_unscrambling(c16_t *e_rx,
@@ -433,14 +557,13 @@ static void nr_pdcch_unscrambling(c16_t *e_rx,
   }
 }
 
-void nr_dci_decoding_procedure(PHY_VARS_NR_UE *ue,
-                               const UE_nr_rxtx_proc_t *proc,
-                               c16_t *pdcch_e_rx,
-                               fapi_nr_dci_indication_t *dci_ind,
-                               fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15)
+static void nr_dci_decoding_procedure(PHY_VARS_NR_UE *ue,
+                                      const UE_nr_rxtx_proc_t *proc,
+                                      c16_t *pdcch_e_rx,
+                                      fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
+                                      fapi_nr_dci_indication_t *dci_ind)
 {
   int e_rx_cand_idx = 0;
-  *dci_ind = (fapi_nr_dci_indication_t){.SFN = proc->frame_rx, .slot = proc->nr_slot_rx};
   // if DCI for SIB we don't break after finding 1st DCI with that RNTI
   // there might be SIB1 and otherSIB in the same slot with the same length
   bool is_SI = rel15->rnti == SI_RNTI;

@@ -307,12 +307,7 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
       break;
   }
 
-  for (int i = 0; i < sps; i++) {
-    if ((monitoringSymbolsWithinSlot >> (sps - 1 - i)) & 1) {
-      rel15->coreset.StartSymbolIndex = i;
-      break;
-    }
-  }
+  rel15->coreset.StartSymbolBitmap = monitoringSymbolsWithinSlot;
   uint32_t Y = 0;
   if (ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_ue_Specific)
     Y = get_Y(ss, slot, rel15->rnti);

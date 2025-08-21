@@ -69,6 +69,12 @@ typedef struct pdsch_scope_req_s {
 void nr_ue_dlsch_init(NR_UE_DLSCH_t *dlsch_list, int num_dlsch, uint8_t max_ldpc_iterations);
 void nr_conjch0_mult_ch1(c16_t *ch0, c16_t *ch1, c16_t *ch0conj_ch1, unsigned short nb_rb, unsigned char output_shift0);
 
+void set_first_last_pdcch_symb(const NR_UE_PDCCH_CONFIG *phy_pdcch_config, int *first_symb, int *last_symb);
+
+int get_pdcch_mon_occasions_slot(const fapi_nr_dl_config_dci_dl_pdu_rel15_t *ss, uint8_t start_symb[NR_SYMBOLS_PER_SLOT]);
+
+int get_max_pdcch_monOcc(const NR_UE_PDCCH_CONFIG *phy_pdcch_config);
+
 /** \brief This is the alternative top-level entry point for DLSCH decoding in UE.
     It handles all the HARQ processes in only one call. The routine first
     computes the segmentation information and then call LDPC decoder on the
@@ -180,14 +186,6 @@ void nr_dlsch_unscrambling(int16_t* llr,
 			   uint32_t Nid,
 			   uint32_t n_RNTI);
 
-void nr_rx_pdcch(PHY_VARS_NR_UE *ue,
-                 const UE_nr_rxtx_proc_t *proc,
-                 int32_t pdcch_est_size,
-                 c16_t pdcch_dl_ch_estimates[][pdcch_est_size],
-                 c16_t *pdcch_e_rx,
-                 fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
-                 c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP]);
-
 /*! \brief Performs detection of SSS to find cell ID and other framing parameters (FDD/TDD, normal/extended prefix)
   @param phy_vars_ue Pointer to UE variables
   @param tot_metric Pointer to variable containing maximum metric under framing hypothesis (to be compared to other hypotheses
@@ -278,12 +276,6 @@ void nr_rf_card_config_freq(openair0_config_t *openair0_cfg,
 void nr_sl_rf_card_config_freq(PHY_VARS_NR_UE *ue,
                                openair0_config_t *openair0_cfg,
                                int freq_offset);
-
-void nr_dci_decoding_procedure(PHY_VARS_NR_UE *ue,
-                               const UE_nr_rxtx_proc_t *proc,
-                               c16_t *pdcch_e_rx,
-                               fapi_nr_dci_indication_t *dci_ind,
-                               fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15);
 
 /** \brief This function is the top-level entry point to PDSCH demodulation, after frequency-domain transformation and channel
    estimation.  It performs

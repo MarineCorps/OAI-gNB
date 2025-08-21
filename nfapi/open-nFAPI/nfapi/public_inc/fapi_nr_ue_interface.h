@@ -73,6 +73,7 @@ typedef struct {
   /// frequency_domain_resource;
   uint8_t frequency_domain_resource[6];
   uint8_t StartSymbolIndex;
+  uint16_t StartSymbolBitmap;
   uint8_t duration;
   uint8_t CceRegMappingType; //  interleaved or noninterleaved
   uint8_t RegBundleSize;     //  valid if CCE to REG mapping type is interleaved type
