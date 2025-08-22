@@ -435,6 +435,7 @@ class Cluster:
 			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/physim_log.txt')
 			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/physim_pods_summary.txt')
 			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/LastTestsFailed.log')
+			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/LastTest.log')
 		test_status, test_summary, test_result = cls_analysis.Analysis.analyze_oc_physim(result_junit, details_json, ctx.logPath)
 		if test_summary:
 			if test_status:
