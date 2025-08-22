@@ -249,7 +249,7 @@ def ExecuteActionWithParam(action, ctx):
 		image_tag = cls_containerize.CreateTag(CLUSTER.ranCommitID, CLUSTER.ranBranch, CLUSTER.ranAllowMerge)
 		options = f"oaicicd-core-for-ci-ran {oc_release} {image_tag} {CLUSTER.eNBSourceCodePath}"
 		workdir = CLUSTER.eNBSourceCodePath
-		success = CLUSTER.deploy_oc_physim(ctx, HTML, node, workdir, script, options)
+		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
 
 	elif action == 'DeployCoreNetwork' or action == 'UndeployCoreNetwork':
 		cn_id = test.findtext('cn_id')

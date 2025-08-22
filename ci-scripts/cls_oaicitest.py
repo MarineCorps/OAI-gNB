@@ -46,6 +46,7 @@ import constants as CONST
 
 import cls_module
 import cls_corenetwork
+import cls_analysis
 import cls_cmd
 from cls_ci_helper import archiveArtifact
 
@@ -249,6 +250,32 @@ def IdleSleep(HTML, idle_sleep_time):
 	time.sleep(idle_sleep_time)
 	HTML.CreateHtmlTestRow(f"{idle_sleep_time} sec", 'OK', CONST.ALL_PROCESSES_OK)
 	return True
+
+def Deploy_Physim(ctx, HTML, node, workdir, script, options):
+	logging.debug(f'Running physims on server {node} workdir {workdir}')
+	with cls_cmd.getConnection(node) as c:
+		ret = c.exec_script(script, 600, options)
+	logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
+	with cls_cmd.getConnection(node) as ssh:
+		details_json = archiveArtifact(ssh, ctx, f'{workdir}/desc-tests.json')
+		result_junit = archiveArtifact(ssh, ctx, f'{workdir}/results-run.xml')
+		archiveArtifact(ssh, ctx, f'{workdir}/physim_log.txt')
+		archiveArtifact(ssh, ctx, f'{workdir}/LastTestsFailed.log')
+		archiveArtifact(ssh, ctx, f'{workdir}/LastTest.log')
+	test_status, test_summary, test_result = cls_analysis.Analysis.analyze_oc_physim(result_junit, details_json, ctx.logPath)
+	if test_summary:
+		if test_status:
+			HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+			logging.info('\u001B[1m Physical Simulator Pass\u001B[0m')
+		else:
+			HTML.CreateHtmlTestRowQueue('At least one physical simulator test failed!', 'KO', ["See below for details"])
+			HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+			logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+	else:
+		HTML.CreateHtmlTestRowQueue('Physical simulator failed', 'KO', [test_result])
+		logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+	return test_status
 
 #-----------------------------------------------------------
 # OaiCiTest Class Definition

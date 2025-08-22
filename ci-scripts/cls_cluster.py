@@ -34,7 +34,6 @@ import time
 import os
 
 import cls_oai_html
-import cls_analysis
 import constants as CONST
 import helpreadme as HELP
 import cls_containerize
@@ -417,29 +416,3 @@ class Cluster:
 			c.run(f'cp -r {ctx.logPath} {os.getcwd()}/test_log_{ctx.test_id}/')
 
 		return status
-
-	def deploy_oc_physim(self, ctx, HTML, node, workdir, script, options):
-		logging.debug(f'Running physims from server: {node}')
-		with cls_cmd.getConnection(node) as c:
-			ret = c.exec_script(script, 600, options)
-		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
-		with cls_cmd.getConnection(node) as ssh:
-			details_json = archiveArtifact(ssh, ctx, f'{workdir}/desc-tests.json')
-			result_junit = archiveArtifact(ssh, ctx, f'{workdir}/results-run.xml')
-			archiveArtifact(ssh, ctx, f'{workdir}/physim_log.txt')
-			archiveArtifact(ssh, ctx, f'{workdir}/LastTestsFailed.log')
-			archiveArtifact(ssh, ctx, f'{workdir}/LastTest.log')
-		test_status, test_summary, test_result = cls_analysis.Analysis.analyze_oc_physim(result_junit, details_json, ctx.logPath)
-		if test_summary:
-			if test_status:
-				HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
-				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
-				logging.info('\u001B[1m Physical Simulator Pass\u001B[0m')
-			else:
-				HTML.CreateHtmlTestRowQueue('At least one physical simulator test failed!', 'KO', ["See below for details"])
-				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
-				logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
-		else:
-			HTML.CreateHtmlTestRowQueue('Physical simulator failed', 'KO', [test_result])
-			logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
-		return test_status
