@@ -234,7 +234,8 @@ def Custom_Command(HTML, node, command):
 
 def Custom_Script(HTML, node, script):
 	logging.info(f"Executing custom script on {node}")
-	ret = cls_cmd.runScript(node, script, 90)
+	with cls_cmd.getConnection(node) as c:
+		ret = c.exec_script(script, 90)
 	logging.debug(f"Custom_Script: {script} on node: {node} - return code {ret.returncode}, output:\n{ret.stdout}")
 	status = 'OK'
 	message = [ret.stdout]

@@ -426,7 +426,8 @@ class Cluster:
 		logging.debug(f'Running physims from server: {node}')
 		script = "scripts/oc-deploy-physims.sh"
 		options = f"oaicicd-core-for-ci-ran {oc_release} {image_tag} {self.eNBSourceCodePath}"
-		ret = cls_cmd.runScript(node, script, 600, options)
+		with cls_cmd.getConnection(node) as c:
+			ret = c.exec_script(script, 600, options)
 		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
 		with cls_cmd.getConnection(node) as ssh:
 			details_json = archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/{oc_release}-tests.json')

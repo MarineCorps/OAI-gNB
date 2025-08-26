@@ -77,7 +77,8 @@ class CoreNetwork:
 		words = line[1:].strip().split(" ")
 		script_name = words[0]
 		options = " ".join(words[1:])
-		ret = cls_cmd.runScript(host, script_name, 300, parameters=options, silent=silent)
+		with cls_cmd.getConnection(host) as c:
+			ret = c.exec_script(script_name, 300, parameters=options, silent=silent)
 		return ret
 
 	def _command(self, cmd_list, must_succeed=False, silent=False):

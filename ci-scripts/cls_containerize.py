@@ -66,7 +66,8 @@ def CreateWorkspace(host, sourcePath, ranRepository, ranCommitID, ranTargetBranc
 			ranTargetBranch = 'develop'
 		options += f" {ranTargetBranch}"
 	logging.info(f'execute "{script}" with options "{options}" on node {host}')
-	ret = cls_cmd.runScript(host, script, 90, options)
+	with cls_cmd.getConnection(host) as c:
+		ret = c.exec_script(script, 90, options)
 	logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
 	return ret.returncode == 0
 
