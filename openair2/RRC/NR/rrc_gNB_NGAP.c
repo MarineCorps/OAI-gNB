@@ -493,6 +493,25 @@ static gtpu_tunnel_t cp_gtp_tunnel(const gtpu_tunnel_t in)
   return out;
 }
 
+/** @brief Fill NG PDU Session Setup item from stored setup PDU Session in RRC list */
+static pdusession_setup_t fill_ngap_pdusession_setup(pdusession_t *session)
+{
+  DevAssert(session != NULL);
+  pdusession_setup_t out = {0};
+  out.pdusession_id = session->pdusession_id;
+  out.pdu_session_type = session->pdu_session_type;
+  out.n3_outgoing = cp_gtp_tunnel(session->n3_outgoing);
+  out.nb_of_qos_flow = session->nb_qos;
+  for (int q = 0; q < session->nb_qos; q++) {
+    out.associated_qos_flows[q].qfi = session->qos[q].qfi;
+    out.associated_qos_flows[q].qos_flow_mapping_ind = QOSFLOW_MAPPING_INDICATION_DL;
+  }
+  char ip_str[INET_ADDRSTRLEN] = {0};
+  inet_ntop(AF_INET, out.n3_outgoing.addr.buffer, ip_str, sizeof(ip_str));
+  LOG_I(NR_RRC, "PDU Session Setup: ID=%d, outgoing TEID=0x%08x, Addr=%s\n", out.pdusession_id, out.n3_outgoing.teid, ip_str);
+  return out;
+}
+
 void rrc_gNB_send_NGAP_INITIAL_CONTEXT_SETUP_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
 {
   MessageDef *msg_p = NULL;
@@ -506,14 +525,7 @@ void rrc_gNB_send_NGAP_INITIAL_CONTEXT_SETUP_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_
   for (int pdusession = 0; pdusession < UE->nb_of_pdusessions; pdusession++) {
     rrc_pdu_session_param_t *session = &UE->pduSession[pdusession];
     if (session->status == PDU_SESSION_STATUS_DONE) {
-      pdu_sessions_done++;
-      resp->pdusessions[pdusession].pdusession_id = session->param.pdusession_id;
-      resp->pdusessions[pdusession].n3_outgoing = cp_gtp_tunnel(session->param.n3_outgoing);
-      resp->pdusessions[pdusession].nb_of_qos_flow = session->param.nb_qos;
-      for (int qos_flow_index = 0; qos_flow_index < session->param.nb_qos; qos_flow_index++) {
-        resp->pdusessions[pdusession].associated_qos_flows[qos_flow_index].qfi = session->param.qos[qos_flow_index].qfi;
-        resp->pdusessions[pdusession].associated_qos_flows[qos_flow_index].qos_flow_mapping_ind = QOSFLOW_MAPPING_INDICATION_DL;
-      }
+      resp->pdusessions[pdu_sessions_done++] = fill_ngap_pdusession_setup(&session->param);
     } else if (session->status != PDU_SESSION_STATUS_ESTABLISHED) {
       session->status = PDU_SESSION_STATUS_FAILED;
       ngap_cause_t cause = {.type = NGAP_CAUSE_RADIO_NETWORK, .value = NGAP_CAUSE_RADIO_NETWORK_UNKNOWN_PDU_SESSION_ID};
@@ -696,22 +708,8 @@ void rrc_gNB_send_NGAP_PDUSESSION_SETUP_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
   for (int pdusession = 0; pdusession < UE->nb_of_pdusessions; pdusession++) {
     rrc_pdu_session_param_t *session = &UE->pduSession[pdusession];
     if (session->status == PDU_SESSION_STATUS_DONE) {
-      pdusession_setup_t *tmp = &resp->pdusessions[pdu_sessions_done];
-      tmp->pdusession_id = session->param.pdusession_id;
-      tmp->nb_of_qos_flow = session->param.nb_qos;
-      tmp->n3_outgoing = cp_gtp_tunnel(session->param.n3_outgoing);
-      tmp->pdu_session_type = session->param.pdu_session_type;
-
-      for (int qos_flow_index = 0; qos_flow_index < tmp->nb_of_qos_flow; qos_flow_index++) {
-        tmp->associated_qos_flows[qos_flow_index].qfi = session->param.qos[qos_flow_index].qfi;
-        tmp->associated_qos_flows[qos_flow_index].qos_flow_mapping_ind = QOSFLOW_MAPPING_INDICATION_DL;
-      }
-
+      resp->pdusessions[pdu_sessions_done++] = fill_ngap_pdusession_setup(&session->param);
       session->status = PDU_SESSION_STATUS_ESTABLISHED;
-      char ip_str[INET_ADDRSTRLEN] = {0};
-      inet_ntop(AF_INET, tmp->n3_outgoing.addr.buffer, ip_str, sizeof(ip_str));
-      LOG_I(NR_RRC, "PDU Session Setup Response: ID=%d, outgoing TEID=0x%08x, Addr=%s\n", tmp->pdusession_id, tmp->n3_outgoing.teid, ip_str);
-      pdu_sessions_done++;
     } else if (session->status != PDU_SESSION_STATUS_ESTABLISHED) {
       session->status = PDU_SESSION_STATUS_FAILED;
       pdusession_failed_t *fail = &resp->pdusessions_failed[pdu_sessions_failed];
