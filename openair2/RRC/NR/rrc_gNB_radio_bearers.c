@@ -40,15 +40,6 @@ static bool eq_pdu_session_id(const void *vval, const void *vit)
   return elem->param.pdusession_id == id;
 }
 
-/** @brief Deep copy pdusession_t */
-void cp_pdusession(pdusession_t *dst, const pdusession_t *src)
-{
-  // Shallow copy
-  *dst = *src;
-  // nas_pdu
-  dst->nas_pdu = copy_byte_array(src->nas_pdu);
-}
-
 /** @brief Free pdusession_t */
 void free_pdusession(void *ptr)
 {
