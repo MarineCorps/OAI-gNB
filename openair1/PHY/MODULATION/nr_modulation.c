@@ -774,6 +774,42 @@ static inline __attribute__((always_inline)) __m256i cmac_prec256(__m256i y, __m
       return _mm256_adds_epi16(y, produ);
 }
 #endif
+#ifdef __aarch64__
+static inline __attribute__((always_inline)) int16x8_t cmac0_prec128(int16x8_t x, int16x8_t wr, int16x8_t wi) {
+    //
+    int16x8_t xr = vuzp1q_s16(x, x);  // even lanes
+    int16x8_t xi = vuzp2q_s16(x, x);  // odd  lanes
+    // real = ar*br - ai*bi  (Q15 scaling via high-half doubling muls)
+    int16x8_t real = vqdmulhq_s16(xr, wr);      // ≈ round((2*xr*wr)/2^16)
+    real = vqrdmlshq_s16(real, xi, wi);         // real -= round((2*xi*wi)/2^16)
+    //
+    // imag = ar*bi + ai*br
+    int16x8_t imag = vqdmulhq_s16(xr, wi);
+    imag = vqrdmlahq_s16(imag, xi, wr);         // imag += round((2*xi*wr)/2^16)
+    //
+    // Re-interleave [real, imag]
+    int16x8x2_t produ = vzipq_s16(real, imag);
+    return produ.val[0];        
+}
+static inline __attribute__((always_inline)) int16x8_t cmac_prec128(int16x8_t y, int16x8_t x, int16x8_t wr, int16x8_t wi) {
+    // De-interleave real/imag
+    int16x8_t xr = vuzp1q_s16(x, x);  // even lanes
+    int16x8_t xi = vuzp2q_s16(x, x);  // odd  lanes
+    //
+    // real = ar*br - ai*bi  (Q15 scaling via high-half doubling muls)
+    int16x8_t real = vqdmulhq_s16(xr, wr);      // ≈ round((2*ar*br)/2^16)
+    real = vqrdmlshq_s16(real, xi, wi);         // real -= round((2*ai*bi)/2^16)
+    //
+    // imag = ar*bi + ai*br
+    int16x8_t imag = vqdmulhq_s16(xr, wi);
+    imag = vqrdmlahq_s16(imag, xi, wr);         // imag += round((2*ai*br)/2^16)
+    //
+    // Re-interleave [real, imag]
+    int16x8x2_t produ = vzipq_s16(real, imag);
+    return vaddq_s16(y,produ.val[0]);        
+}
+#endif
+
 void nr_layer_precoder_simd(const int n_layers,
                             const int symSz,
                             const c16_t txdataF_res_mapped[n_layers][symSz],
@@ -967,6 +1003,91 @@ void nr_layer_precoder_simd(const int n_layers,
 #endif
 #ifdef __aarch64__
 
+  const uint32_t re_cnt_align8 = re_cnt & ~3;
+  if (n_layers==2) {
+ 
+    prec_weight.r = pmi_pdu->weights[0][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[0][ant].precoder_weight_Im;
+    const int16x8_t wr0 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi0 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[1][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[1][ant].precoder_weight_Im;
+    const int16x8_t wr1 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi1 = vdupq_n_s16(prec_weight.i); 
+    int16x8_t y;
+
+    for (; sc < sc_offset + (re_cnt_align8); sc += sizeof(int16x8_t) / sizeof(prec_weight)) {
+      const int16x8_t x0 = vld1q_s16((const int16_t*)&txdataF_res_mapped[0][sc]);
+      const int16x8_t x1 = vld1q_s16((const int16_t*)&txdataF_res_mapped[1][sc]);
+      // Accumulate the product
+      y = cmac0_prec128(x0,wr0,wi0);
+      y = cmac_prec128(y,x1,wr1,wi1);
+      // Store the result to txdataF
+      *((int16x8_t*)&txdataF_precoded[sc])= y;
+    }
+  }
+  if (n_layers==3) {
+ 
+    prec_weight.r = pmi_pdu->weights[0][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[0][ant].precoder_weight_Im;
+    const int16x8_t wr0 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi0 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[1][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[1][ant].precoder_weight_Im;
+    const int16x8_t wr1 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi1 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[2][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[2][ant].precoder_weight_Im;
+    const int16x8_t wr2 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi2 = vdupq_n_s16(prec_weight.i); 
+    int16x8_t y;
+
+    for (; sc < sc_offset + (re_cnt_align8); sc += sizeof(int16x8_t) / sizeof(prec_weight)) {
+      const int16x8_t x0 = vld1q_s16((const int16_t*)&txdataF_res_mapped[0][sc]);
+      const int16x8_t x1 = vld1q_s16((const int16_t*)&txdataF_res_mapped[1][sc]);
+      const int16x8_t x2 = vld1q_s16((const int16_t*)&txdataF_res_mapped[2][sc]);
+      // Accumulate the product
+      y = cmac0_prec128(x0,wr0,wi0);
+      y = cmac_prec128(y,x1,wr1,wi1);
+      y = cmac_prec128(y,x2,wr2,wi2);
+      // Store the result to txdataF
+      *((int16x8_t*)&txdataF_precoded[sc])= y;
+    }
+  }
+  if (n_layers==4) {
+ 
+    prec_weight.r = pmi_pdu->weights[0][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[0][ant].precoder_weight_Im;
+    const int16x8_t wr0 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi0 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[1][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[1][ant].precoder_weight_Im;
+    const int16x8_t wr1 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi1 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[2][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[2][ant].precoder_weight_Im;
+    const int16x8_t wr2 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi2 = vdupq_n_s16(prec_weight.i); 
+    prec_weight.r = pmi_pdu->weights[3][ant].precoder_weight_Re;
+    prec_weight.i = pmi_pdu->weights[3][ant].precoder_weight_Im;
+    const int16x8_t wr3 = vdupq_n_s16(prec_weight.r); 
+    const int16x8_t wi3 = vdupq_n_s16(prec_weight.i); 
+    int16x8_t y;
+
+    for (; sc < sc_offset + (re_cnt_align8); sc += sizeof(int16x8_t) / sizeof(prec_weight)) {
+      const int16x8_t x0 = vld1q_s16((const int16_t*)&txdataF_res_mapped[0][sc]);
+      const int16x8_t x1 = vld1q_s16((const int16_t*)&txdataF_res_mapped[1][sc]);
+      const int16x8_t x2 = vld1q_s16((const int16_t*)&txdataF_res_mapped[2][sc]);
+      const int16x8_t x3 = vld1q_s16((const int16_t*)&txdataF_res_mapped[3][sc]);
+      // Accumulate the product
+      y = cmac0_prec128(x0,wr0,wi0);
+      y = cmac_prec128(y,x1,wr1,wi1);
+      y = cmac_prec128(y,x2,wr2,wi2);
+      y = cmac_prec128(y,x3,wr3,wi3);
+      // Store the result to txdataF
+      *((int16x8_t*)&txdataF_precoded[sc])= y;
+    }
+  }
 #else  
     // Matrix multiplication for 4 elements of the result (sizeof(simde__m128i) / sizeof(c16_t) = 4)
     simde__m128i y = simde_mm_set1_epi16(0); // Y = W[0]*X[0] + W[1]*X[1] + ... + W[nrOfLayers-1]*X[nrOfLayers-1]
