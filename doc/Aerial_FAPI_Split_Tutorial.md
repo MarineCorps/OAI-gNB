@@ -66,6 +66,8 @@ The UEs that have been tested and confirmed working with Aerial are the followin
 To set up the L1 and install the components manually refer to this [instructions page](https://docs.nvidia.com/aerial/cuda-accelerated-ran/index.html).
 
 **Note**:
+- As of wk36, the L1 must be compiled with the following CMake flag: `-DSCF_FAPI_10_04_SRS=ON` , this is due to the usage
+of the FAPI 10.04 version of the SRS PDU, and RX_Beamforming PDU.
 - To configure the Gigabyte server please refer to these [instructions](https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/2025.w13/doc/Aerial_FAPI_Split_Tutorial.md)
 - The last release to support the Gigabyte server is **Aerial CUDA-Accelerated RAN 24-1**.
 
