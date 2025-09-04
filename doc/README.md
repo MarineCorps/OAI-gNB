@@ -60,7 +60,7 @@ There is some general information in the [OpenAirInterface Gitlab Wiki](https://
 - [How to run OAI-VNF and OAI-PNF](./nfapi.md): how to run the FAPI/nFAPI split,
   including some general remarks on FAPI/nFAPI.
 - [How to use the positioning reference signal (PRS)](./RUN_NR_PRS.md)
-- [How to use device-to-device communication (D2D, 4G)](./d2d_emulator_setup.txt)
+- [How to use device-to-device communication (D2D, 4G)](./d2d_emulator_setup.md)
 - [How to run with E2 agent](../openair2/E2AP/README.md)
 - [How to run the physical simulators](./physical-simulators.md)
 - [How to setup OAI with Nvidia Aerial and Foxconn](./Aerial_FAPI_Split_Tutorial.md)
