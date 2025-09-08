@@ -103,26 +103,22 @@ To define a new test or modify existing ones, update the following file:
 openair1/SIMULATION/tests/CMakeLists.txt
 ```
 
-Use the `add_physim_test` macro with the following arguments:
 
-```cmake
-add_physim_test(<test_gen> <test_exec> <test_description> <test_label> <test_cl_options>)
-```
+Use the `add_physim_test()` macro with the following arguments:
 
-### Arguments:
+    add_physim_test(<test_name> <test_description> <test_exec> <test_options>)
 
-* `<test_gen>`: Test generation (e.g., `4g` or `5g`)
-* `<test_exec>`: Name of the test executable (e.g., `nr_prachsim`)
-* `<test_description>`: Description shown in `ctest` output, useful for categorization and indexing.
-* `<test_label>`: Label used for filtering tests (via `-L`), shown in the ctest output summary as a descriptive tag.
-* `<test_cl_options>`: Command line options passed to the test
+where:
+- `<test_name>` can be any name, but the canonical, historical format is to put
+  it `physim.<gen>.<test_exec>.test<XYZ>` where `<gen>` is 4g/5g, and `<XYZ>`
+  is an increasing number
+- `<test_description>` is a human-readable description of the test
+- `<test_exec> <test_options>` is the test invocation, where `<test_exec>` must
+  be a target built by OAI cmake (e.g., `nr_prachsim`), followed by any options.
 
-### Example:
+For instance, a PRACHsim looks like this:
 
-```cmake
-# add_physim_test(<test_gen> <test_exec> <test_description> <test_label> <test_cl_options>)
-add_physim_test(5g nr_prachsim test8 "15kHz SCS, 25 PRBs" -a -s -30 -n 300 -p 99 -R 25 -m 0)
-```
+    add_physim_test(physim.5g.nr_prachsim.test8 "15kHz SCS, 25 PRBs" nr_prachsim -a -s -30 -n 300 -p 99 -R 25 -m 0)
 
 These tests are run automatically as part of the following
 pipelines: [RAN-PhySim-Cluster-4G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-4G/) and [RAN-PhySim-Cluster-5G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-5G/)
