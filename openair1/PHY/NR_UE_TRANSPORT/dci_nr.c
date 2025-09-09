@@ -249,6 +249,7 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
      * the position 0+c_rb-N_RB_DL/2 in rxdataF and we have to point the pointer at (1+c_rb-N_RB_DL/2) in rxdataF
      */
 
+    c16_t middle_prb_buffer[RE_PER_RB];
     for (int rb_group = 0; rb_group < coreset_nbr_rb / 6; rb_group++) {
       if ((coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
         continue;
@@ -270,7 +271,15 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
           if ((c_rb + n_BWP_start) <= frame_parms->N_RB_DL / 2)
             // if RB to be treated is lower than middle system bandwidth then rxdataF pointed
             //  at (offset + c_br + symbol * ofdm_symbol_size): odd case
-            rxF = rxFbase + frame_parms->first_carrier_offset + RE_PER_RB * (c_rb + n_BWP_start);
+            // Reassemble the middle PRB
+            if (c_rb + n_BWP_start == frame_parms->N_RB_DL / 2) {
+              memcpy(middle_prb_buffer, rxFbase + frame_parms->ofdm_symbol_size - RE_PER_RB / 2, sizeof(c16_t) * RE_PER_RB / 2);
+              memcpy(middle_prb_buffer + RE_PER_RB / 2, rxFbase, sizeof(c16_t) * RE_PER_RB / 2);
+              rxF = middle_prb_buffer;
+            } else {
+              rxF = rxFbase + frame_parms->first_carrier_offset + RE_PER_RB * (c_rb + n_BWP_start);
+            }
+
           else
             // number of RBs is odd  and c_rb is higher than half system bandwidth + 1
             // if these conditions are true the pointer has to be situated at the 1st part of
