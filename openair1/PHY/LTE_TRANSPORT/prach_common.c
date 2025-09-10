@@ -304,8 +304,9 @@ const uint16_t prach_root_sequence_map4[138] = {
     57, 82,  58, 81,  59, 80,  60, 79,  61, 78,  62, 77,  63, 76,  64, 75,  65, 74,  66, 73,  67, 72,  68, 71,  69, 70};
 
 void dump_prach_config(LTE_DL_FRAME_PARMS *frame_parms,uint8_t subframe) {
-  FILE *fd;
-  fd = fopen("prach_config.txt","w");
+  FILE *fd = fopen("prach_config.txt", "w");
+  if (!fd)
+    return;
   fprintf(fd,"prach_config: subframe          = %d\n",subframe);
   fprintf(fd,"prach_config: N_RB_UL           = %d\n",frame_parms->N_RB_UL);
   fprintf(fd,"prach_config: frame_type        = %s\n",(frame_parms->frame_type==1) ? "TDD":"FDD");

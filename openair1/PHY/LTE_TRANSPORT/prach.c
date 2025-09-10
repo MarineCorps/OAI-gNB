@@ -346,20 +346,31 @@ void rx_prach0(PHY_VARS_eNB *eNB,
     }
   }
 
-  if ((eNB==NULL)  && ru->function == NGFI_RRU_IF4p5) {
-    /// **** send_IF4 of rxsigF to RAU **** ///
-    if (br_flag == 1)
-      send_IF4p5(ru, frame_prach, subframe, IF4p5_PRACH+1+ce_level);
-    else
-      send_IF4p5(ru, frame_prach, subframe, IF4p5_PRACH);
-
-    return;
-  } else if (eNB!=NULL) {
-    if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
-      int en = dB_fixed(signal_energy((int32_t *)&rxsigF[0][0],840));
-
-      if ((en > 10)&&(br_flag==1)) LOG_I(PHY,"PRACH (br_flag %d,ce_level %d, n_ra_prb %d, k %d): Frame %d, Subframe %d => %d dB\n",br_flag,ce_level,n_ra_prb,k,frame_prach,subframe,en);
+  if (!eNB) {
+    if (ru->function == NGFI_RRU_IF4p5) {
+      /// **** send_IF4 of rxsigF to RAU **** ///
+      if (br_flag == 1)
+        send_IF4p5(ru, frame_prach, subframe, IF4p5_PRACH + 1 + ce_level);
+      else
+        send_IF4p5(ru, frame_prach, subframe, IF4p5_PRACH);
+    } else {
+      LOG_E(PHY, "inconsistent case\n");
     }
+    return;
+  }
+
+  if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
+    int en = dB_fixed(signal_energy((int32_t *)&rxsigF[0][0], 840));
+    if ((en > 10) && (br_flag == 1))
+      LOG_I(PHY,
+            "PRACH (br_flag %d,ce_level %d, n_ra_prb %d, k %d): Frame %d, Subframe %d => %d dB\n",
+            br_flag,
+            ce_level,
+            n_ra_prb,
+            k,
+            frame_prach,
+            subframe,
+            en);
   }
 
   // in case of RAU and prach received rx_thread wakes up prach

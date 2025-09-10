@@ -2786,11 +2786,10 @@ RU_t **RCconfig_RU(int nb_RU,int nb_L1_inst,PHY_VARS_eNB ***eNB,uint64_t *ru_mas
   config_getlist(config_get_if(), &RUParamList, RUParams, sizeofArray(RUParams), NULL);
   RU_t **ru=NULL;
   if ( RUParamList.numelt > 0) {
-    ru = (RU_t **)malloc(nb_RU*sizeof(RU_t *));
+    ru = malloc_or_fail(nb_RU * sizeof(RU_t *));
 
     for (int j = 0; j < nb_RU; j++) {
-      ru[j]                                    = (RU_t *)malloc(sizeof(RU_t));
-      memset((void *)ru[j],0,sizeof(RU_t));
+      ru[j] = calloc_or_fail(1,sizeof(RU_t));
       ru[j]->idx                                 = j;
       LOG_I(PHY,"Creating ru[%d]:%p\n", j, ru[j]);
       ru[j]->if_timing                           = synch_to_ext_device;

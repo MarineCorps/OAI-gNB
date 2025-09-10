@@ -506,7 +506,12 @@ static inline void nr_pucch2_3_4_scrambling(uint16_t M_bit, uint16_t rnti, uint1
       uint8_t c = (uint8_t)((s >> i) & 1);
       btildep[i] = (((B>>i)&1) ^ c);
 #ifdef DEBUG_NR_PUCCH_TX
-      printf("\t\t\t btilde[%d]=%x from unscrambled bit %d and scrambling %d (%x)\n",i+(iprime<<5),btilde[i],((B>>i)&1),c,s>>i);
+      printf("\t\t\t btilde[%d]=%x from unscrambled bit %u and scrambling %d (%x)\n",
+             i + (iprime << 5),
+             btilde[i],
+             ((B >> i) & 1),
+             c,
+             s >> i);
 #endif
     }
   }

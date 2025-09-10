@@ -263,11 +263,7 @@ void nr_pbch_unscrambling(int16_t *demod_pbch_e,
       *pbch_a_interleaved ^= ((unscrambling_mask >> i) & 1)
                                  ? ((pbch_a_prime >> i) & 1) << i
                                  : (((pbch_a_prime >> i) & 1) ^ ((seq[idxGold] >> ((k + offset) & 0x1f)) & 1)) << i;
-      k += (!((unscrambling_mask>>i)&1));
-#ifdef DEBUG_PBCH_ENCODING
-      printf("i %d k %d offset %d (unscrambling_mask>>i)&1) %d s: %08x\t  pbch_a_interleaved 0x%08x (!((unscrambling_mask>>i)&1)) %d\n", i, k, offset, (unscrambling_mask>>i)&1, s, *pbch_a_interleaved,
-             (!((unscrambling_mask>>i)&1)));
-#endif
+      k += (!((unscrambling_mask >> i) & 1));
     } else {
       if (((i + offset) & 0x1f) == 0)
         idxGold++;
