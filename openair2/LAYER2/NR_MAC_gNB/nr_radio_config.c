@@ -1123,20 +1123,22 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, i
 
     // make TDA for the mixed slot
     long mixed_sliv = get_SLIV(NR_NUMBER_OF_SYMBOLS_PER_SLOT - ul_symb, ul_symb - 1);
-    if (ul_symb > 1 && (k2 <= N_dl1 || (p2 && N_ul2 == 0))) {
+    int mixed_min_ul_symb = 3; // need at least two symbols PUSCH + PUCCH
+    bool has_ul_mixed = ul_symb >= mixed_min_ul_symb;
+    if (has_ul_mixed && (k2 <= N_dl1 || (p2 && N_ul2 == 0))) {
       // UL TDA index 2 for mixed slot (TDD) (no pattern 2 and enough DL slots, or pattern2 only DL)
       tda = set_TimeDomainResourceAllocation(k2, mixed_sliv); // to be reached from suitable DL slot
       asn1cSeqAdd(&tda_list->list, tda);
-    } else if (ul_symb > 1 && !p2 && k2 > N_dl1) { // k2 > N_Dl1
+    } else if (has_ul_mixed && !p2 && k2 > N_dl1) { // k2 > N_Dl1
       // UL TDA for mixed slot without pattern 2 and less DL slots than k2
       tda = set_TimeDomainResourceAllocation(nb_slots_per_period, mixed_sliv); // to be reached from last DL (mixed) slot, if any
       asn1cSeqAdd(&tda_list->list, tda);
-    } else if (ul_symb > 1 && N_ul2 > 0 && k2 > N_dl1) {
+    } else if (has_ul_mixed && N_ul2 > 0 && k2 > N_dl1) {
       // we have pattern 2 with UL, and less p1 DL slots than k2
       tda = set_TimeDomainResourceAllocation(N_dl1 + N_ul2 + 1, mixed_sliv);
       asn1cSeqAdd(&tda_list->list, tda);
     } else {
-      AssertFatal(ul_symb == 0, "unhandled case of mixed slot: N_dl1 %d N_ul1 %d N_dl2 %d N_ul2 %d\n", N_dl1, N_ul1, N_dl2, N_ul2);
+      LOG_I(NR_RRC, "mixed slot has %d UL symbols, cannot create mixed slot TDA\n", ul_symb);
     }
 
     // make TDA for UL slots that are not reachable within k2/min_rxtxtime
@@ -1149,10 +1151,26 @@ void nr_rrc_config_ul_tda(NR_ServingCellConfigCommon_t *scc, int min_fb_delay, i
         tda = set_TimeDomainResourceAllocation(i, get_SLIV(0, 13));
         asn1cSeqAdd(&tda_list->list, tda);
         if (do_SRS) {
-          tda = set_TimeDomainResourceAllocation(k2, get_SLIV(0, 12));
+          tda = set_TimeDomainResourceAllocation(i, get_SLIV(0, 12));
           asn1cSeqAdd(&tda_list->list, tda);
         }
       }
+    }
+
+    // for Msg3, an additional get_delta_for_k2(mu) is added to k2.
+    // check that any UL slot is reachable under this condition
+    // the below is designed to only hit specific (known) cases
+    // examples: DDDSU (no TDA in S),
+    int N_dl = max(N_dl1, N_dl2);
+    int delta = get_delta_for_k2(mu);
+    int k2_msg3 = k2 + delta;
+    if (nb_slots_per_period % k2_msg3 == 0 /* see example above */
+        && k2_msg3 > N_dl /* otherwise, can always have a D that reaches U */
+        && k2_msg3 > N_ul /* otherwise, can always have a D that reaches U */
+        && !has_ul_mixed /* if mixed slot, even for DDDSU would reach */) {
+      /* reach next UL from mixed slot in previous period */
+      tda = set_TimeDomainResourceAllocation(k2_msg3, get_SLIV(0, 13));
+      asn1cSeqAdd(&tda_list->list, tda);
     }
   }
 
@@ -2988,7 +3006,7 @@ static NR_MAC_CellGroupConfig_t *configure_mac_cellgroup(const nr_mac_timers_t *
   NR_MAC_CellGroupConfig_t * mac_CellGroupConfig = calloc(1, sizeof(*mac_CellGroupConfig));
   AssertFatal(mac_CellGroupConfig != NULL, "Couldn't allocate mac-CellGroupConfig. Out of memory!\n");
   mac_CellGroupConfig->bsr_Config = calloc(1, sizeof(*mac_CellGroupConfig->bsr_Config));
-  mac_CellGroupConfig->bsr_Config->periodicBSR_Timer = NR_BSR_Config__periodicBSR_Timer_sf10;
+  mac_CellGroupConfig->bsr_Config->periodicBSR_Timer = NR_BSR_Config__periodicBSR_Timer_sf5;
   mac_CellGroupConfig->bsr_Config->retxBSR_Timer = NR_BSR_Config__retxBSR_Timer_sf80;
   mac_CellGroupConfig->tag_Config = calloc(1, sizeof(*mac_CellGroupConfig->tag_Config));
   mac_CellGroupConfig->tag_Config->tag_ToReleaseList = NULL;

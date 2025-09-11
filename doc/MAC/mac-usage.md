@@ -38,7 +38,7 @@ The actual scheduler implementation can be found in functions `pf_dl()` and
 [`gNB_scheduler_ulsch.c`](../../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_ulsch.c)
 (for UL), respectively.
 
-## PDDCH aggregation level
+## PDCCH aggregation level
 
 PDCCH aggregation level is selected using closed loop controller, where DL HARQ
 feedback is the controller feedback signal. It is used to increment `pdcch_cl_adjust`
@@ -60,7 +60,7 @@ in aggregation level 2 which translates to `uess_agg_levels` set to `[0, 2, 0,
 Say we have 90% PDCCH success rate at aggregation level 1, `pdcch_cl_adjust` will stay at 0
 for most of the time. 2 consecutive PDCCH failures will not result in increasing the aggregation
 level (because (0.05 + 0.05) * 4 = 0.4 which is closer to 0 than to 1). If PDCCH fails 3 times
-in a row the aggregation level will change to 2 and hopefully back to 1 once more PDDCH successes
+in a row the aggregation level will change to 2 and hopefully back to 1 once more PDCCH successes
 happen.
 
 ### Example 2
@@ -404,3 +404,13 @@ pattern2: {
     nrofUplinkSymbols2             = 0;
 };
 ```
+
+#### UL-heavy TDD patterns
+
+"UL-heavy TDD patterns", i.e., TDD patterns that have many UL slots are
+supported. Examples for such patterns would be DSUUU or DDDSUUUUUU.
+
+Note that you should increase the aggregation level candidates as described in
+[the corresponding section above](#pdcch-aggregation-level). This is because the
+scheduler has to schedule multiple DCIs in a single DL slots for multiple UL
+slots. As a suggestion, you could try `uess_agg_levels = [4, 2, 2, 0, 0]`.

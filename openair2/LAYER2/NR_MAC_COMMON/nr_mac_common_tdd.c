@@ -138,6 +138,10 @@ static uint8_t set_tdd_bmap_period(const NR_TDD_UL_DL_Pattern_t *pattern, tdd_pe
         n_ul_slot,
         n_dl_symbols,
         n_ul_symbols);
+  AssertFatal(n_dl_symbols + n_ul_symbols < 14,
+              "number of mixed slot symbols must be smaller than 14: DL %d, UL %d\n",
+              n_dl_symbols,
+              n_ul_symbols);
 
   return total_slot;
 }
@@ -174,6 +178,11 @@ static void config_tdd_patterns(const NR_TDD_UL_DL_ConfigCommon_t *tdd, frame_st
         num_of_patterns,
         nb_slots_p1,
         nb_slots_p2);
+  AssertFatal(nb_slots_p1 + nb_slots_p2 == fs->numb_slots_period,
+              "total number of slots must equal to %d: p1 %d + p2 %d\n",
+              fs->numb_slots_period,
+              nb_slots_p1,
+              nb_slots_p2);
 }
 
 /**

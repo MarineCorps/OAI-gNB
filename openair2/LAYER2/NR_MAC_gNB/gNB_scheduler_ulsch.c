@@ -595,6 +595,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
         /* Extract short BSR value */
         ce_ptr = &pduP[mac_subheader_len];
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_short_bsr((NR_BSR_SHORT *)ce_ptr);
+        sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "SHORT BSR at %4d.%2d, est buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
         break;
 
@@ -603,6 +604,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
         /* Extract long BSR value */
         ce_ptr = &pduP[mac_subheader_len];
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_long_bsr((NR_BSR_LONG *)ce_ptr);
+        sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "LONG BSR at %4d.%2d, estim buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
         break;
 
@@ -1805,7 +1807,7 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   new_sched.bwp_info = bwp_info;
   DevAssert(new_sched.ul_harq_pid == harq_pid);
 
-  bool reuse_old_tda = (retInfo->tda_info.startSymbolIndex == tda_info->startSymbolIndex) && (retInfo->tda_info.nrOfSymbols <= tda_info->nrOfSymbols);
+  bool reuse_old_tda = retInfo->time_domain_allocation == tda;
   if (reuse_old_tda && nrOfLayers == retInfo->nrOfLayers) {
     /* Check the resource is enough for retransmission */
     const uint16_t slbitmap = SL_to_bitmap(retInfo->tda_info.startSymbolIndex, retInfo->tda_info.nrOfSymbols);
@@ -1887,6 +1889,7 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   fill_pdcch_vrb_map(nrmac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, dci_beam_idx);
 
   // signal new allocation
+  DevAssert(new_sched.time_domain_allocation == tda);
   post_process_ulsch(nrmac, pp_pusch, UE, &new_sched);
   LOG_D(NR_MAC,
         "%4d.%2d Allocate UL retransmission RNTI %04x sched %4d.%2d (%d RBs)\n",
@@ -2424,16 +2427,11 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
   /* Statistics */
   AssertFatal(cur_harq->round < nr_mac->ul_bler.harq_round_max, "Indexing ulsch_rounds[%d] is out of bounds\n", cur_harq->round);
   UE->mac_stats.ul.rounds[cur_harq->round]++;
+  /* Save information on MCS, TBS etc for the current initial transmission
+   * so we have access to it when retransmitting */
+  cur_harq->sched_pusch = *sched_pusch;
   if (cur_harq->round == 0) {
     UE->mac_stats.ulsch_total_bytes_scheduled += sched_pusch->tb_size;
-    /* Save information on MCS, TBS etc for the current initial transmission
-     * so we have access to it when retransmitting */
-    cur_harq->sched_pusch = *sched_pusch;
-    /* save which time allocation and nrOfLayers have been used, to be used on
-     * retransmissions */
-    cur_harq->sched_pusch.time_domain_allocation = sched_pusch->time_domain_allocation;
-    cur_harq->sched_pusch.nrOfLayers = sched_pusch->nrOfLayers;
-    cur_harq->sched_pusch.tpmi = sched_pusch->tpmi;
     sched_ctrl->sched_ul_bytes += sched_pusch->tb_size;
     UE->mac_stats.ul.total_rbs += sched_pusch->rbSize;
 
