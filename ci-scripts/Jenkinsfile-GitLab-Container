@@ -269,6 +269,29 @@ pipeline {
             }
           }
         }
+        stage ("PhySim-GraceHopper-5G") {
+          when { expression {do5Gtest || do5GUeTest} }
+          steps {
+            script {
+              triggerSlaveJob ('RAN-PhySim-GraceHopper-5G', 'PhySim-GraceHopper-5G')
+            }
+          }
+          post {
+            always {
+              script {
+                // Using a unique variable name for each test stage to avoid overwriting on a global variable
+                // due to parallel-time concurrency
+                physimGH5GStatus = finalizeSlaveJob('RAN-PhySim-GraceHopper-5G')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += physimGH5GStatus
+              }
+            }
+          }
+        }
         stage ("PhySim-Cluster-4G") {
           when { expression {do4Gtest} }
           steps {
