@@ -135,6 +135,14 @@ information on how the images are built.
     - target image from `Dockerfile.nr-cuup.ubuntu`
     - target image from `Dockerfile.nrUE.ubuntu`
     - target image from `Dockerfile.gNB.aerial.ubuntu`
+- [RAN-Ubuntu-Jetson-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Jetson-Image-Builder/)
+  ~BUILD-ONLY ~4G-LTE ~5G-NR
+  - jetson3-oai: ARMv8 Ubuntu image build using docker
+  - base image from `Dockerfile.base.ubuntu`
+  - build image from `Dockerfile.build.ubuntu`, followed by
+    - target image from `Dockerfile.gNB.ubuntu`
+    - target image from `Dockerfile.nr-cuup.ubuntu`
+    - target image from `Dockerfile.nrUE.ubuntu`
 
 #### Image Test pipelines
 
