@@ -4123,7 +4123,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   return secondaryCellGroup;
 }
 
-NR_ReconfigurationWithSync_t *get_reconfiguration_with_sync(rnti_t rnti, uid_t uid, const NR_ServingCellConfigCommon_t *scc)
+NR_ReconfigurationWithSync_t *get_reconfiguration_with_sync(rnti_t rnti, uid_t uid, const NR_ServingCellConfigCommon_t *scc, int frame)
 {
   NR_ReconfigurationWithSync_t *reconfigurationWithSync = calloc(1, sizeof(*reconfigurationWithSync));
   reconfigurationWithSync->newUE_Identity = rnti;
@@ -4132,6 +4132,19 @@ NR_ReconfigurationWithSync_t *get_reconfiguration_with_sync(rnti_t rnti, uid_t u
   reconfigurationWithSync->ext1 = NULL;
 
   reconfigurationWithSync->spCellConfigCommon = clone_ServingCellConfigCommon(scc);
+
+  // in case of ReconfigurationWithSync, the epochTime_r17 must be present if there is a ntn_Config_r17
+  if (reconfigurationWithSync->spCellConfigCommon->ext2 && reconfigurationWithSync->spCellConfigCommon->ext2->ntn_Config_r17) {
+    NR_NTN_Config_r17_t *ntncfg = reconfigurationWithSync->spCellConfigCommon->ext2->ntn_Config_r17;
+    if (!ntncfg->epochTime_r17) {
+      ntncfg->epochTime_r17 = calloc(1, sizeof(*ntncfg->epochTime_r17));
+      // the epochTime_r17 is esp. relevant for the timer T430, which runs for multiples of 5 seconds.
+      // here we don't have access to the current subFrame number, so we only set the SFN.
+      // the error of up to 10 ms should be acceptable for this long running timer.
+      ntncfg->epochTime_r17->sfn_r17 = frame;
+      ntncfg->epochTime_r17->subFrameNR_r17 = 0;
+    }
+  }
 
   reconfigurationWithSync->rach_ConfigDedicated = calloc(1, sizeof(*reconfigurationWithSync->rach_ConfigDedicated));
   reconfigurationWithSync->rach_ConfigDedicated->present = NR_ReconfigurationWithSync__rach_ConfigDedicated_PR_uplink;
