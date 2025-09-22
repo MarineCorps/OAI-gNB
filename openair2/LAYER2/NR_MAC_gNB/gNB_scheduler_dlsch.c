@@ -587,7 +587,6 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   return true;
 }
 
-static uint32_t pf_tbs[3][29]; // pre-computed, approximate TBS values for PF coefficient
 typedef struct UEsched_s {
   float coef;
   NR_UE_info_t * UE;
@@ -909,31 +908,8 @@ static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
   pf_dl(module_id, frame, slot, UE_info->connected_ue_list, max_sched_ues, num_beams, n_rb_sched);
 }
 
-nr_pp_impl_dl nr_init_dlsch_preprocessor(int CC_id) {
-  /* during initialization: no mutex needed */
-  /* in the PF algorithm, we have to use the TBsize to compute the coefficient.
-   * This would include the number of DMRS symbols, which in turn depends on
-   * the time domain allocation. In case we are in a mixed slot, we do not want
-   * to recalculate all these values just, and therefore we provide a look-up
-   * table which should approximately give us the TBsize */
-  for (int mcsTableIdx = 0; mcsTableIdx < 3; ++mcsTableIdx) {
-    for (int mcs = 0; mcs < 29; ++mcs) {
-      if (mcs > 27 && mcsTableIdx == 1)
-        continue;
-
-      const uint8_t Qm = nr_get_Qm_dl(mcs, mcsTableIdx);
-      const uint16_t R = nr_get_code_rate_dl(mcs, mcsTableIdx);
-      pf_tbs[mcsTableIdx][mcs] = nr_compute_tbs(Qm,
-                                                R,
-                                                1, /* rbSize */
-                                                10, /* hypothetical number of slots */
-                                                0, /* N_PRB_DMRS * N_DMRS_SLOT */
-                                                0 /* N_PRB_oh, 0 for initialBWP */,
-                                                0 /* tb_scaling */,
-                                                1 /* nrOfLayers */) >> 3;
-    }
-  }
-
+nr_pp_impl_dl nr_init_dlsch_preprocessor(int CC_id)
+{
   return nr_dlsch_preprocessor;
 }
 
