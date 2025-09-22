@@ -86,9 +86,6 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
   if(!tda_info.valid_tda)
     return;
 
-  sched_ctrl->sched_pdsch.tda_info = tda_info;
-  sched_ctrl->sched_pdsch.time_domain_allocation = tda;
-
   /* find largest unallocated chunk */
   const int bwpSize = dl_bwp->BWPSize;
   const int BWPStart = dl_bwp->BWPStart;
@@ -142,12 +139,11 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
                                0);
   AssertFatal(CCEIndex >= 0, "Could not find CCE for UE %04x\n", UE->rnti);
 
-  NR_sched_pdsch_t *sched_pdsch = &sched_ctrl->sched_pdsch;
-  if (sched_pdsch->dl_harq_pid == -1)
-    sched_pdsch->dl_harq_pid = sched_ctrl->available_dl_harq.head;
-
   int alloc = -1;
-  if (!get_FeedbackDisabled(UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, sched_pdsch->dl_harq_pid)) {
+  int harq_pid = sched_ctrl->retrans_dl_harq.head;
+  if (harq_pid < 0)
+    harq_pid = sched_ctrl->available_dl_harq.head;
+  if (!get_FeedbackDisabled(UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {
     int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, UE->current_UL_BWP.pucch_Config, CCEIndex);
     alloc = nr_acknack_scheduling(mac, UE, frame, slot, 0, r_pucch, 0);
     if (alloc < 0) {
@@ -165,42 +161,38 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
                      sched_ctrl->aggregation_level,
                      beam);
 
-  //AssertFatal(alloc,
-  //            "could not find uplink slot for PUCCH (RNTI %04x@%d.%d)!\n",
-  //            rnti, frame, slot);
-
-  sched_pdsch->pucch_allocation = alloc;
-  sched_pdsch->rbStart = rbStart;
-  sched_pdsch->rbSize = rbSize;
-  sched_pdsch->bwp_info = get_pdsch_bwp_start_size(mac, UE);
-  sched_pdsch->dmrs_parms = get_dl_dmrs_params(scc,
-                                               dl_bwp,
-                                               &tda_info,
-                                               target_dl_Nl);
-
-  sched_pdsch->mcs = target_dl_mcs;
-  sched_pdsch->nrOfLayers = target_dl_Nl;
-  sched_pdsch->Qm = nr_get_Qm_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
-  sched_pdsch->R = nr_get_code_rate_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
+  NR_sched_pdsch_t sched_pdsch = {
+      .rbSize = rbSize,
+      .rbStart = rbStart,
+      .mcs = target_dl_mcs,
+      .R = nr_get_code_rate_dl(target_dl_mcs, dl_bwp->mcsTableIdx),
+      .Qm = nr_get_Qm_dl(target_dl_mcs, dl_bwp->mcsTableIdx),
+      // tbSize further below
+      .dl_harq_pid = sched_ctrl->retrans_dl_harq.head, // PID of HARQ awaiting retransmission, or -1 otherwise
+      .pucch_allocation = alloc,
+      .pm_index = 0,
+      .nrOfLayers = target_dl_Nl,
+      .bwp_info = get_pdsch_bwp_start_size(mac, UE),
+      .dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, target_dl_Nl),
+      .time_domain_allocation = tda,
+      .tda_info = tda_info,
+  };
   sched_ctrl->dl_bler_stats.mcs = target_dl_mcs; /* for logging output */
-  sched_pdsch->tb_size = nr_compute_tbs(sched_pdsch->Qm,
-                                        sched_pdsch->R,
-                                        sched_pdsch->rbSize,
-                                        tda_info.nrOfSymbols,
-                                        sched_pdsch->dmrs_parms.N_PRB_DMRS * sched_pdsch->dmrs_parms.N_DMRS_SLOT,
-                                        0 /* N_PRB_oh, 0 for initialBWP */,
-                                        0 /* tb_scaling */,
-                                        sched_pdsch->nrOfLayers)
-                         >> 3;
+  sched_pdsch.tb_size = nr_compute_tbs(sched_pdsch.Qm,
+                                       sched_pdsch.R,
+                                       sched_pdsch.rbSize,
+                                       tda_info.nrOfSymbols,
+                                       sched_pdsch.dmrs_parms.N_PRB_DMRS * sched_pdsch.dmrs_parms.N_DMRS_SLOT,
+                                       0 /* N_PRB_oh, 0 for initialBWP */,
+                                       0 /* tb_scaling */,
+                                       target_dl_Nl)
+                        >> 3;
 
-  /* get the PID of a HARQ process awaiting retransmission, or -1 otherwise */
-  sched_pdsch->dl_harq_pid = sched_ctrl->retrans_dl_harq.head;
+  sched_ctrl->sched_pdsch = sched_pdsch;
 
   /* mark the corresponding RBs as used */
-  for (int rb = 0; rb < sched_pdsch->rbSize; rb++)
-    vrb_map[rb + sched_pdsch->rbStart + BWPStart] = SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
-
-  if ((frame&127) == 0) LOG_D(MAC,"phytest: %d.%d DL mcs %d, DL rbStart %d, DL rbSize %d\n", frame, slot, sched_pdsch->mcs, rbStart,rbSize);
+  for (int rb = 0; rb < sched_pdsch.rbSize; rb++)
+    vrb_map[rb + sched_pdsch.rbStart + BWPStart] = SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 }
 
 uint32_t target_ul_mcs = 9;
