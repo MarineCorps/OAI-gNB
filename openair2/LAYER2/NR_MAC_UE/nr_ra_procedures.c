@@ -1141,7 +1141,7 @@ void nr_get_Msg3_MsgA_PUSCH_payload(NR_UE_MAC_INST_t *mac, uint8_t *buf, int TBS
     *(NR_MAC_SUBHEADER_FIXED *)pdu = (NR_MAC_SUBHEADER_FIXED){.LCID = UL_SCH_LCID_PADDING};
     pdu += sizeof(NR_MAC_SUBHEADER_FIXED);
   }
-  ra->Msg3_buffer = calloc(TBS_max, sizeof(uint8_t));
+  ra->Msg3_buffer = calloc_or_fail(TBS_max, sizeof(uint8_t));
   memcpy(ra->Msg3_buffer, buf, sizeof(uint8_t) * TBS_max);
 }
 
@@ -1260,18 +1260,12 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
                          .n_harq = 1};
   current_harq->active = false;
   current_harq->ack_received = false;
-  if (get_softmodem_params()->emulate_l1) {
-    mac->nr_ue_emul_l1.harq[pid].active = true;
-    mac->nr_ue_emul_l1.harq[pid].active_dl_harq_sfn = sched_frame;
-    mac->nr_ue_emul_l1.harq[pid].active_dl_harq_slot = sched_slot;
-  }
-  fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, sched_frame, sched_slot, FAPI_NR_UL_CONFIG_TYPE_PUCCH);
-  if (!pdu)
-    return;
-  int ret = nr_ue_configure_pucch(mac, sched_slot, sched_frame, mac->ra.t_crnti, &pucch, &pdu->pucch_config_pdu);
-  if (ret != 0)
-    remove_ul_config_last_item(pdu);
-  release_ul_config(pdu, false);
+
+  RA_config_t *ra = &mac->ra;
+  ra->ra_pucch = calloc_or_fail(1, sizeof(*ra->ra_pucch));
+  ra->ra_pucch->pucch_sched = pucch;
+  ra->ra_pucch->sched_frame = sched_frame;
+  ra->ra_pucch->sched_slot = sched_slot;
 }
 
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach)

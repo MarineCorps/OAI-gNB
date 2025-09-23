@@ -1713,7 +1713,7 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
   return mux_done;
 }
 
-static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, int slotP)
+static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot)
 {
   PUCCH_sched_t pucch[3] = {0}; // TODO the size might change in the future in case of multiple SR or multiple CSI in a slot
 
@@ -1722,40 +1722,50 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, int slo
   mac->nr_ue_emul_l1.num_csi_reports = 0;
   int num_res = 0;
 
-  // SR
-  if (mac->state == UE_CONNECTED && trigger_periodic_scheduling_request(mac, &pucch[0], frameP, slotP)) {
-    num_res++;
-    // TODO check if the PUCCH resource for the SR transmission occasion overlap with a UL-SCH resource
+  if (mac->ra.ra_pucch) {
+    // scheduling PUCCH prepared in advance for MSG4
+    RA_PUCCH_SCHED_t *ra_pucch = mac->ra.ra_pucch;
+    if (ra_pucch->sched_frame == frame && ra_pucch->sched_slot == slot) {
+      pucch[0] = ra_pucch->pucch_sched;
+      num_res++;
+      free_and_zero(mac->ra.ra_pucch);
+    }
+  } else {
+    // SR
+    if (mac->state == UE_CONNECTED && trigger_periodic_scheduling_request(mac, &pucch[0], frame, slot)) {
+      num_res++;
+      // TODO check if the PUCCH resource for the SR transmission occasion overlap with a UL-SCH resource
+    }
+
+    // CSI
+    int csi_res = 0;
+    if (mac->state == UE_CONNECTED)
+      csi_res = nr_get_csi_measurements(mac, frame, slot, &pucch[num_res]);
+    if (csi_res > 0) {
+      num_res += csi_res;
+    }
+
+    // ACKNACK
+    bool any_harq = get_downlink_ack(mac, frame, slot, &pucch[num_res]);
+    if (any_harq)
+      num_res++;
+
+    if (num_res == 0)
+      return;
+    // do no transmit pucch if only SR scheduled and it is negative
+    if (num_res == 1 && pucch[0].n_sr > 0 && pucch[0].sr_payload == 0)
+      return;
+
+    if (num_res > 1)
+      multiplex_pucch_resource(mac, pucch, num_res);
   }
-
-  // CSI
-  int csi_res = 0;
-  if (mac->state == UE_CONNECTED)
-    csi_res = nr_get_csi_measurements(mac, frameP, slotP, &pucch[num_res]);
-  if (csi_res > 0) {
-    num_res += csi_res;
-  }
-
-  // ACKNACK
-  bool any_harq = get_downlink_ack(mac, frameP, slotP, &pucch[num_res]);
-  if (any_harq)
-    num_res++;
-
-  if (num_res == 0)
-    return;
-  // do no transmit pucch if only SR scheduled and it is negative
-  if (num_res == 1 && pucch[0].n_sr > 0 && pucch[0].sr_payload == 0)
-    return;
-
-  if (num_res > 1)
-    multiplex_pucch_resource(mac, pucch, num_res);
 
   for (int j = 0; j < num_res; j++) {
     if (pucch[j].n_harq + pucch[j].n_sr + pucch[j].n_csi != 0) {
       LOG_D(NR_MAC,
             "%d.%d configure pucch, O_ACK %d, O_SR %d, O_CSI %d\n",
-            frameP,
-            slotP,
+            frame,
+            slot,
             pucch[j].n_harq,
             pucch[j].n_sr,
             pucch[j].n_csi);
@@ -1764,20 +1774,20 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, int slo
       mac->nr_ue_emul_l1.num_csi_reports = pucch[j].n_csi;
 
       // checking if we need to schedule pucch[j] on PUSCH
-      if (schedule_uci_on_pusch(mac, frameP, slotP, &pucch[j], mac->current_UL_BWP))
+      if (schedule_uci_on_pusch(mac, frame, slot, &pucch[j], mac->current_UL_BWP))
         continue;
 
-      fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frameP, slotP, FAPI_NR_UL_CONFIG_TYPE_PUCCH);
+      fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame, slot, FAPI_NR_UL_CONFIG_TYPE_PUCCH);
       if (!pdu) {
         LOG_E(NR_MAC, "Error in pucch allocation\n");
         return;
       }
       DevAssert(mac->current_DL_BWP != NULL);
       int mu = mac->current_DL_BWP->scs;
-      mac->nr_ue_emul_l1.active_uci_sfn_slot = NFAPI_SFNSLOT2DEC(mu, frameP, slotP);
+      mac->nr_ue_emul_l1.active_uci_sfn_slot = NFAPI_SFNSLOT2DEC(mu, frame, slot);
       int ret = nr_ue_configure_pucch(mac,
-                                      slotP,
-                                      frameP,
+                                      slot,
+                                      frame,
                                       mac->crnti, // FIXME not sure this is valid for all pucch instances
                                       &pucch[j],
                                       &pdu->pucch_config_pdu);
