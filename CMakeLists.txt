@@ -942,9 +942,9 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_tbs_tools.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_prach_common.c
   ${OPENAIR1_DIR}/PHY/nr_phy_common/src/nr_phy_common_csirs.c
+  ${OPENAIR1_DIR}/PHY/nr_phy_common/src/nr_phy_common_srs.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_scrambling.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/refsig.c
-  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/srs_modulation_nr.c
   )
 
   set(PHY_NR_SRC

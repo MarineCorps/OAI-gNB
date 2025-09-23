@@ -647,7 +647,7 @@ int main(int argc, char **argv)
       break;
     }
   }
-printf("%d\n", slot);
+
   logInit();
   set_glog(loglvl);
   /* initialize the sin table */
