@@ -721,6 +721,7 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   /* free the memory we allocated above */
   free_ue_context_setup_resp(&resp);
   ASN_STRUCT_FREE(asn_DEF_NR_CG_ConfigInfo, cg_configinfo);
+  ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, mtc);
 }
 
 void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
