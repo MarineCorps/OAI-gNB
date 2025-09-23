@@ -1609,17 +1609,19 @@ void rrc_gNB_send_NGAP_HANDOVER_REQUIRED(gNB_RRC_INST *rrc,
       rrc_pdu_session_param_t *pduSession = find_pduSession(UE, UE->pduSession[i].param.pdusession_id, false);
       if (!pduSession)
         continue;
+      pdusession_t *session = &pduSession->param;
       // Handover Required Transfer (M)
       uint8_t ho_required_transfer[128] = {0};
       msg.pdusessions[i].ho_required_transfer.buf = ho_required_transfer;
       msg.pdusessions[i].ho_required_transfer.len = sizeof(ho_required_transfer);
       // PDU Session ID
-      msg.pdusessions[i].pdusession_id = pduSession->param.pdusession_id;
-
+      msg.pdusessions[i].pdusession_id = session->pdusession_id;
       // PDU Session Resource Information List (O)
-      msg.source2target->pdu_session_resource[i].nb_of_qos_flow = pduSession->param.nb_qos;
-      for (int j = 0; j < pduSession->param.nb_qos; ++j) {
-        msg.source2target->pdu_session_resource[i].qos_flow_info[j].qfi = pduSession->param.qos[j].qfi;
+      pdusession_resource_info_t *pdu_info = &msg.source2target->pdu_session_resource[msg.source2target->nb_pdu_session_resource++];
+      pdu_info->pdusession_id = session->pdusession_id;
+      pdu_info->nb_of_qos_flow = session->nb_qos;
+      for (int j = 0; j < session->nb_qos; ++j) {
+        pdu_info->qos_flow_info[j].qfi = session->qos[j].qfi;
       }
       msg.source2target->nb_pdu_session_resource++;
     }
