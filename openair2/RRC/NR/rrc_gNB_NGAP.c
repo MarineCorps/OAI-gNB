@@ -944,8 +944,8 @@ int rrc_gNB_process_NGAP_PDUSESSION_MODIFY_REQ(MessageDef *msg_p, instance_t ins
 int rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, uint8_t xid)
 {
   MessageDef *msg_p = NULL;
-  uint8_t pdu_sessions_failed = 0;
-  uint8_t pdu_sessions_done = 0;
+  uint16_t pdu_sessions_failed = 0;
+  uint16_t pdu_sessions_done = 0;
 
   msg_p = itti_alloc_new_message (TASK_RRC_GNB, rrc->module_id, NGAP_PDUSESSION_MODIFY_RESP);
   if (msg_p == NULL) {

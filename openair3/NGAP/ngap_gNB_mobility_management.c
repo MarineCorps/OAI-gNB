@@ -123,7 +123,7 @@ NGAP_NGAP_PDU_t *encode_ng_handover_required(const ngap_handover_required_t *msg
 
   // PDU Session Resource Information List (O)
   asn1cCalloc(source2target->pDUSessionResourceInformationList, pduSessionList);
-  for (uint8_t i = 0; i < msg->nb_of_pdusessions; ++i) {
+  for (uint16_t i = 0; i < msg->nb_of_pdusessions; ++i) {
     const pdusession_resource_t *pduSession = &msg->pdusessions[i];
     NGAP_DEBUG("Handover Required: preparing PDU Session Resource Information List for PDU Session ID %d\n",
                pduSession->pdusession_id);

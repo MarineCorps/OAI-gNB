@@ -562,7 +562,7 @@ typedef struct {
   // Target ID
   target_ran_node_id_t target_gnb_id;
   // PDU Session Resource List
-  uint8_t nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   pdusession_resource_t pdusessions[NGAP_MAX_PDU_SESSION];
   // Source to Target Transparent Container
   source_to_target_transparent_container_t *source2target;
@@ -610,7 +610,7 @@ typedef struct {
   // Security Context
   ngap_security_context_t security_context;
   // PDU Session Resource Setup List
-  uint8_t nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   ho_request_pdusession_t pduSessionResourceSetupList[NGAP_MAX_PDU_SESSION];
   // Allowed NSSAI
   uint8_t nb_allowed_nssais;
@@ -650,7 +650,7 @@ typedef struct {
   uint64_t amf_ue_ngap_id;
   // PDU Session Resource Admitted List
   pdu_session_resource_admitted_t pdusessions[NGAP_MAX_PDU_SESSION];
-  uint8_t nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   // Target to Source Transparent Container
   byte_array_t target2source;
 } ngap_handover_request_ack_t;
@@ -680,7 +680,7 @@ typedef struct {
   // Handover Type
   ho_type_t handoverType;
   // PDU Session Resource Handover List
-  uint8_t nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   pdusession_resource_handover_t pdu_sessions[NGAP_MAX_PDU_SESSION];
   // Target to Source Transparent Container
   byte_array_t handoverCommand;
@@ -730,12 +730,12 @@ typedef struct ngap_initial_context_setup_resp_s {
   uint32_t  gNB_ue_ngap_id;
 
   /* Number of pdusession setup-ed in the list */
-  uint8_t       nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   /* list of pdusession setup-ed by RRC layers */
   pdusession_setup_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be setup in list */
-  uint8_t        nb_of_pdusessions_failed;
+  uint16_t nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be setup */
   pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_initial_context_setup_resp_t;
@@ -823,7 +823,7 @@ typedef struct ngap_initial_context_setup_req_s {
   uint8_t security_key[SECURITY_KEY_LENGTH];
 
   /* Number of pdusession to be setup in the list */
-  uint8_t  nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   // PDU Session Resource Setup Request List
   pdusession_resource_item_t pdusession[NGAP_MAX_PDU_SESSION];
 
@@ -871,7 +871,7 @@ typedef struct ngap_pdusession_setup_req_s {
   nssai_t allowed_nssai[8];
 
   /* Number of pdusession to be setup in the list */
-  uint8_t nb_pdusessions_tosetup;
+  uint16_t nb_pdusessions_tosetup;
 
   // PDU Session Resource Setup Request List
   pdusession_resource_item_t pdusession[NGAP_MAX_PDU_SESSION];
@@ -885,12 +885,12 @@ typedef struct ngap_pdusession_setup_req_s {
 typedef struct ngap_pdusession_setup_resp_s {
   uint32_t gNB_ue_ngap_id;
   /* Number of pdusession setup-ed in the list */
-  uint8_t       nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   /* list of pdusession setup-ed by RRC layers */
   pdusession_setup_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be setup in list */
-  uint8_t        nb_of_pdusessions_failed;
+  uint16_t nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be setup */
   pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_pdusession_setup_resp_t;
@@ -914,7 +914,7 @@ typedef struct pdusession_release_s {
 typedef struct ngap_ue_release_req_s {
   uint32_t             gNB_ue_ngap_id;
   /* Number of pdusession resource in the list */
-  uint8_t              nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   /* list of pdusession resource by RRC layers */
   pdusession_release_t pdusessions[NGAP_MAX_PDU_SESSION];
   ngap_cause_t cause;
@@ -928,7 +928,7 @@ typedef struct ngap_pdusession_modify_req_s {
   uint32_t  gNB_ue_ngap_id;
 
   /* Number of pdusession to be modify in the list */
-  uint8_t nb_pdusessions_tomodify;
+  uint16_t nb_pdusessions_tomodify;
 
   // PDU Session Resource Modify Request List
   pdusession_resource_item_t pdusession[NGAP_MAX_PDU_SESSION];
@@ -938,12 +938,12 @@ typedef struct ngap_pdusession_modify_resp_s {
   uint32_t  gNB_ue_ngap_id;
 
   /* Number of pdusession modify-ed in the list */
-  uint8_t       nb_of_pdusessions;
+  uint16_t nb_of_pdusessions;
   /* list of pdusession modify-ed by RRC layers */
   pdusession_modify_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be modify in list */
-  uint8_t        nb_of_pdusessions_failed;
+  uint16_t nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be modify */
   pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_pdusession_modify_resp_t;
@@ -959,7 +959,7 @@ typedef struct ngap_pdusession_release_command_s {
   byte_array_t nas_pdu;
 
   /* Number of pdusession to be released in the list */
-  uint8_t                        nb_pdusessions_torelease;
+  uint16_t nb_pdusessions_torelease;
 
   /* PDUSession release command */
   pdusession_release_t pdusession_release_params[NGAP_MAX_PDU_SESSION];
@@ -969,14 +969,10 @@ typedef struct ngap_pdusession_release_command_s {
 typedef struct ngap_pdusession_release_resp_s {
   /* AMF UE id  */
   uint64_t amf_ue_ngap_id;
-
-  /* gNB ue ngap id as initialized by NGAP layer */
-  uint32_t             gNB_ue_ngap_id;
-
-  /* Number of pdusession released in the list */
-  uint8_t              nb_of_pdusessions_released;
-
-  /* list of pdusessions released */
+  // RAN UE NGAP ID
+  uint32_t gNB_ue_ngap_id;
+  // PDU Session Resource Released List
+  uint16_t nb_of_pdusessions_released;
   pdusession_release_t pdusession_release[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be released in list */
