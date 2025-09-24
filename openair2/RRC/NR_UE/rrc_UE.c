@@ -134,9 +134,6 @@ static const char nr_nas_attach_req_imsi_dummy_NSA_case[] = {
     0x11,
 };
 
-static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc,
-                                      const NR_CellGroupConfig_t *cellGroupConfig);
-
 static void nr_rrc_ue_process_RadioBearerConfig(NR_UE_RRC_INST_t *ue_rrc,
                                                 NR_RadioBearerConfig_t *const radioBearerConfig);
 static void nr_rrc_ue_generate_rrcReestablishmentComplete(const NR_UE_RRC_INST_t *rrc, const NR_RRCReestablishment_t *rrcReestablishment);
@@ -1229,8 +1226,7 @@ static void nr_rrc_signal_maxrtxindication(int ue_id)
   itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, msg);
 }
 
-static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc,
-                                      const NR_CellGroupConfig_t *cellGroupConfig)
+static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupConfig_t *cellGroupConfig)
 {
   if (cellGroupConfig->rlc_BearerToReleaseList != NULL) {
     for (int i = 0; i < cellGroupConfig->rlc_BearerToReleaseList->list.count; i++) {
