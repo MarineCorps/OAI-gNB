@@ -134,11 +134,6 @@ static const char nr_nas_attach_req_imsi_dummy_NSA_case[] = {
     0x11,
 };
 
-static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
-                                              OCTET_STRING_t *masterCellGroup,
-                                              long *fullConfig,
-                                              int gNB_index);
-
 /**
  * @brief Sends an RRC message to the connected UE MAC instance.
  *
@@ -721,6 +716,34 @@ static void nr_rrc_ue_process_RadioBearerConfig(NR_UE_RRC_INST_t *ue_rrc, NR_Rad
 
   ue_rrc->nrRrcState = RRC_STATE_CONNECTED_NR;
   LOG_I(NR_RRC, "State = NR_RRC_CONNECTED\n");
+}
+
+static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
+                                              OCTET_STRING_t *masterCellGroup,
+                                              long *fullConfig,
+                                              int gNB_index)
+{
+  AssertFatal(!fullConfig, "fullConfig not supported yet\n");
+  NR_CellGroupConfig_t *cellGroupConfig = NULL;
+  uper_decode(NULL,
+              &asn_DEF_NR_CellGroupConfig,   //might be added prefix later
+              (void **)&cellGroupConfig,
+              (uint8_t *)masterCellGroup->buf,
+              masterCellGroup->size, 0, 0);
+
+  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+    xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *) cellGroupConfig);
+  }
+
+  nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index);
+
+  LOG_D(RRC, "Sending CellGroupConfig to MAC the pointer will be managed by mac\n");
+  nr_mac_rrc_message_t rrc_msg = {0};
+  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_CG;
+  nr_mac_rrc_config_cg_t *mac_msg = &rrc_msg.payload.config_cg;
+  mac_msg->cellGroupConfig = cellGroupConfig;
+  mac_msg->UE_NR_Capability = rrc->UECap.UE_NR_Capability;
+  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
 }
 
 static void nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCReconfiguration_v1530_IEs_t *rec_1530, int gNB_index)
@@ -1715,34 +1738,6 @@ void nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc, NR_CellGroupConfig_t 
     AssertFatal(cellGroupConfig->ext1->reportUplinkTxDirectCurrent == NULL, "Reporting of UplinkTxDirectCurrent not implemented\n");
   AssertFatal(cellGroupConfig->sCellToReleaseList == NULL, "Secondary serving cell release not implemented\n");
   AssertFatal(cellGroupConfig->sCellToAddModList == NULL, "Secondary serving cell addition not implemented\n");
-}
-
-static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
-                                              OCTET_STRING_t *masterCellGroup,
-                                              long *fullConfig,
-                                              int gNB_index)
-{
-  AssertFatal(!fullConfig, "fullConfig not supported yet\n");
-  NR_CellGroupConfig_t *cellGroupConfig = NULL;
-  uper_decode(NULL,
-              &asn_DEF_NR_CellGroupConfig,   //might be added prefix later
-              (void **)&cellGroupConfig,
-              (uint8_t *)masterCellGroup->buf,
-              masterCellGroup->size, 0, 0);
-
-  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
-    xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *) cellGroupConfig);
-  }
-
-  nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index);
-
-  LOG_D(RRC, "Sending CellGroupConfig to MAC the pointer will be managed by mac\n");
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_CG;
-  nr_mac_rrc_config_cg_t *mac_msg = &rrc_msg.payload.config_cg;
-  mac_msg->cellGroupConfig = cellGroupConfig;
-  mac_msg->UE_NR_Capability = rrc->UECap.UE_NR_Capability;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
 }
 
 static void rrc_ue_generate_RRCSetupComplete(const NR_UE_RRC_INST_t *rrc, const uint8_t Transaction_id)
