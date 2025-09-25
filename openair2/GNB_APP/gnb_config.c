@@ -1344,7 +1344,7 @@ void config_rlc(configmodule_interface_t *cfg, nr_rlc_configuration_t *rlc_confi
   rlc_config->drb_um.sn_field_length = config_get_processedint(cfg, &rlc_drb_um_params[CONFIG_NR_RLC_DRB_UM_SN_FIELD_LENGTH_IDX]);
 }
 
-void config_pdcp(configmodule_interface_t *cfg, nr_pdcp_configuration_t *pdcp_config)
+static void config_pdcp(configmodule_interface_t *cfg, nr_pdcp_configuration_t *pdcp_config)
 {
   /* DRB configuration */
   paramdef_t pdcp_params[] = NR_PDCP_DRB_GLOBALPARAMS_DESC;
