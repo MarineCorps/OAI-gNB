@@ -35,7 +35,7 @@ def gitCommitAuthorEmailAddr
 // list of failing stages
 def failingStages = ""
 
-def OAI_Registry = "gracehopper3-oai.sboai.cs.eurecom.fr"
+OAI_Registry = "gracehopper3-oai.sboai.cs.eurecom.fr"
 
 pipeline {
   agent {
