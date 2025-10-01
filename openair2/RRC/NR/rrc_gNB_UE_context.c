@@ -122,6 +122,18 @@ rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST *rrc_in
   return NULL;
 }
 
+/** @brief Fetch UE Context by the unique AMF UE NGAP ID */
+rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_amf_ue_ngap_id(gNB_RRC_INST *rrc_instance_pP, uint64_t amf_ue_ngap_id)
+{
+  rrc_gNB_ue_context_t *ue_context_p;
+  RB_FOREACH (ue_context_p, rrc_nr_ue_tree_s, &(rrc_instance_pP->rrc_ue_head)) {
+    if (ue_context_p->ue_context.amf_ue_ngap_id == amf_ue_ngap_id) {
+      return ue_context_p;
+    }
+  }
+  return NULL;
+}
+
 void rrc_gNB_free_mem_ue_context(rrc_gNB_ue_context_t *const ue_context_pP)
 //-----------------------------------------------------------------------------
 {

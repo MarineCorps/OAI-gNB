@@ -1145,7 +1145,11 @@ NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
   if (rc_A3_seq) {
     for (int i = 0; i < rc_A3_seq->size; i++) {
       NR_ReportConfigToAddMod_t *rc_A3 = (NR_ReportConfigToAddMod_t *)seq_arr_at(rc_A3_seq, i);
-      asn1cSeqAdd(&mc->reportConfigToAddModList->list, rc_A3);
+      // Create a deep copy of the report config
+      NR_ReportConfigToAddMod_t *rc_A3_copy = NULL;
+      int result = asn_copy(&asn_DEF_NR_ReportConfigToAddMod, (void **)&rc_A3_copy, rc_A3);
+      AssertFatal(result >= 0, "error during asn_copy() of ReportConfigToAddMod\n");
+      asn1cSeqAdd(&mc->reportConfigToAddModList->list, rc_A3_copy);
     }
   }
 
@@ -1255,6 +1259,7 @@ void fill_removal_lists_from_source_measConfig(NR_MeasConfig_t *currentMC, byte_
      and extract the measConfig provided by the source gNB */
   if (!hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation->sourceConfig) {
     LOG_W(NR_RRC, "Missing sourceConfig: in source gNB rrcReconfiguration\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
     return;
   }
   NR_RRCReconfiguration_t *rrcReconf = NULL;
@@ -1266,11 +1271,15 @@ void fill_removal_lists_from_source_measConfig(NR_MeasConfig_t *currentMC, byte_
                                                            sourceConfig->rrcReconfiguration.size);
   if (rrcReconf_dec_rval.code != RC_OK || rrcReconf_dec_rval.consumed < 0) {
     LOG_E(NR_RRC, "Failed to decode source gNB rrcReconfiguration!\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
     return;
   }
 
-  if (rrcReconf->criticalExtensions.choice.rrcReconfiguration->measConfig == NULL)
+  if (rrcReconf->criticalExtensions.choice.rrcReconfiguration->measConfig == NULL) {
+    ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
+    ASN_STRUCT_FREE(asn_DEF_NR_RRCReconfiguration, rrcReconf);
     return;
+  }
 
   NR_MeasConfig_t *sourceMC = rrcReconf->criticalExtensions.choice.rrcReconfiguration->measConfig;
 
@@ -1302,6 +1311,10 @@ void fill_removal_lists_from_source_measConfig(NR_MeasConfig_t *currentMC, byte_
       asn1cSeqAdd(&currentMC->measIdToRemoveList->list, measId);
     }
   }
+
+  // Clean up allocated memory
+  ASN_STRUCT_FREE(asn_DEF_NR_HandoverPreparationInformation, hpi);
+  ASN_STRUCT_FREE(asn_DEF_NR_RRCReconfiguration, rrcReconf);
 }
 
 int doRRCReconfiguration_from_HandoverCommand(byte_array_t *ba, const byte_array_t handoverCommand)

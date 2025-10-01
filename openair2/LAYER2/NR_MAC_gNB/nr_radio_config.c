@@ -50,6 +50,11 @@
 
 #define NR_MAX_SUPPORTED_DL_LAYERS 4
 
+/* Default values for measurement gap configuration */
+#define DEFAULT_MGRP NR_GapConfig__mgrp_ms160
+#define DEFAULT_MGTA NR_GapConfig__mgta_ms0dot5
+#define DEFAULT_MGL NR_GapConfig__mgl_ms6
+
 #define PUCCH2_SIZE 8
 const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
 
@@ -4211,53 +4216,6 @@ NR_ReconfigurationWithSync_t *get_reconfiguration_with_sync(rnti_t rnti, uid_t u
   return reconfigurationWithSync;
 }
 
-static NR_MeasGapConfig_t *get_gap_config_from_smtc(const NR_SSB_MTC_t *ssb_mtc)
-{
-  NR_MeasGapConfig_t *measGapConfig = calloc_or_fail(1, sizeof(*measGapConfig));
-  measGapConfig->ext1 = calloc_or_fail(1, sizeof(*measGapConfig->ext1));
-  measGapConfig->ext1->gapUE = calloc_or_fail(1, sizeof(*measGapConfig->ext1->gapUE));
-  measGapConfig->ext1->gapUE->present = NR_SetupRelease_GapConfig_PR_setup;
-  NR_GapConfig_t *gap_config = calloc_or_fail(1, sizeof(*gap_config));
-  measGapConfig->ext1->gapUE->choice.setup = gap_config;
-
-  // mgta = Measurement Gap Timing Advance, to provide sufficient time for the UE to re-tune its transceiver
-  // This allows the Measurement Gap to extend mgta ms either side of the SS/PBCH Measurement Window.
-  gap_config->mgta = NR_GapConfig__mgta_ms0dot5;
-
-  // mgrp = Measurement Gap Repetition Period
-  // gapOffset = It defines the start of the Measurement Gaps relative to the start of the radio frame with SFN = 0
-  // The Measurement Gaps need to be synchronized with the SS/PBCH transmissions which are to be measured
-  gap_config->mgrp = NR_GapConfig__mgrp_ms160;
-  switch (ssb_mtc->periodicityAndOffset.present) {
-    case NR_SSB_MTC__periodicityAndOffset_PR_sf20:
-      gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf20;
-      break;
-    case NR_SSB_MTC__periodicityAndOffset_PR_sf40:
-      gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf40;
-      break;
-    case NR_SSB_MTC__periodicityAndOffset_PR_sf80:
-      gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf80;
-      break;
-    case NR_SSB_MTC__periodicityAndOffset_PR_sf160:
-      gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf160;
-      break;
-    default:
-      LOG_W(NR_RRC, "SMTC periodicity higher than MGRP\n");
-      // With this configuration, not all SSBs belong to the Measurement Gap.
-      if (ssb_mtc->periodicityAndOffset.present == NR_SSB_MTC__periodicityAndOffset_PR_sf5) {
-        gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf5;
-      } else if (ssb_mtc->periodicityAndOffset.present == NR_SSB_MTC__periodicityAndOffset_PR_sf10) {
-        gap_config->gapOffset = ssb_mtc->periodicityAndOffset.choice.sf10;
-      }
-  }
-
-  // mgl = Measurement Gap Length
-  // FIXME: At least the duration of the SMTC plus 2 times the mgta should be enough,
-  //  however, at the moment it only works by setting the maximum value
-  gap_config->mgl = NR_GapConfig__mgl_ms6;
-
-  return measGapConfig;
-}
 
 NR_MeasurementTimingConfiguration_t *get_nr_mtc(uint8_t *buf, uint32_t len)
 {
@@ -4330,25 +4288,37 @@ static float get_mgta(long mgta)
   }
 }
 
-/** @brief Return Measurement Gap Configuration, from ASN.1 config */
-const NR_GapConfig_t *get_gap_config(const NR_MeasGapConfig_t *mgc)
+/** @brief Extract gapOffset from SSB MTC periodicity */
+static bool extract_gap_offset_from_smtc(const NR_SSB_MTC_t *ssb_mtc, long *gapOffset)
 {
-  if (mgc->gapFR2 && mgc->gapFR2->present == NR_SetupRelease_GapConfig_PR_setup)
-    return mgc->gapFR2->choice.setup;
+  if (!ssb_mtc)
+    return false;
 
-  // FR1 case
-  if (!mgc->ext1)
-    return NULL;
+  // Extract gapOffset based on periodicity
+  switch (ssb_mtc->periodicityAndOffset.present) {
+    case NR_SSB_MTC__periodicityAndOffset_PR_sf20:
+      *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf20;
+      break;
+    case NR_SSB_MTC__periodicityAndOffset_PR_sf40:
+      *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf40;
+      break;
+    case NR_SSB_MTC__periodicityAndOffset_PR_sf80:
+      *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf80;
+      break;
+    case NR_SSB_MTC__periodicityAndOffset_PR_sf160:
+      *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf160;
+      break;
+    default:
+      LOG_W(NR_RRC, "SMTC periodicity higher than MGRP\n");
+      if (ssb_mtc->periodicityAndOffset.present == NR_SSB_MTC__periodicityAndOffset_PR_sf5) {
+        *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf5;
+      } else if (ssb_mtc->periodicityAndOffset.present == NR_SSB_MTC__periodicityAndOffset_PR_sf10) {
+        *gapOffset = ssb_mtc->periodicityAndOffset.choice.sf10;
+      }
+      break;
+  }
 
-  const NR_SetupRelease_GapConfig_t *gapUE = mgc->ext1->gapUE;
-  if (gapUE && gapUE->present == NR_SetupRelease_GapConfig_PR_setup)
-    return gapUE->choice.setup;
-
-  const NR_SetupRelease_GapConfig_t *gapFR1 = mgc->ext1->gapFR1;
-  if (gapFR1 && gapFR1->present == NR_SetupRelease_GapConfig_PR_setup)
-    return gapFR1->choice.setup;
-
-  return NULL;
+  return true;
 }
 
 measgap_config_t create_measgap_config(const NR_MeasurementTimingConfiguration_t *mtc, int scs, int min_rxtxtime)
@@ -4359,18 +4329,25 @@ measgap_config_t create_measgap_config(const NR_MeasurementTimingConfiguration_t
   DevAssert(mt != NULL && mt->frequencyAndTiming != NULL);
   const struct NR_MeasTiming__frequencyAndTiming *ft = mt->frequencyAndTiming;
   const NR_SSB_MTC_t *ssb_mtc = &ft->ssb_MeasurementTimingConfiguration;
-  NR_MeasGapConfig_t *measGapConfig = get_gap_config_from_smtc(ssb_mtc);
-  const NR_GapConfig_t *gap_config = get_gap_config(measGapConfig);
-  if (!gap_config)
+
+  // Initialize with defaults
+  long mgrp = DEFAULT_MGRP;
+  long gapOffset = 0;
+  long mgta = DEFAULT_MGTA;
+  long mgl = DEFAULT_MGL;
+
+  // Extract gapOffset from SSB MTC periodicity
+  if (!extract_gap_offset_from_smtc(ssb_mtc, &gapOffset)) {
     return mgc;
+  }
 
-  mgc.mgrp_ms = get_mgrp(gap_config->mgrp);
+  mgc.mgrp_ms = get_mgrp(mgrp);
   DevAssert(mgc.mgrp_ms != -1);
-  mgc.mgrp = gap_config->mgrp;
+  mgc.mgrp = mgrp;
 
-  mgc.gapOffset = gap_config->gapOffset;
-  mgc.mgta = gap_config->mgta;
-  mgc.n_slots_mgta = ((int)(10 * get_mgta(gap_config->mgta)) << scs) / 10;
+  mgc.gapOffset = gapOffset;
+  mgc.mgta = mgta;
+  mgc.n_slots_mgta = ((int)(10 * get_mgta(mgta)) << scs) / 10;
 
   // We start the timer K2 slots earlier to avoid scheduling feedback PUCCHs inside measGap
   // or depending on the current min_rxtxtime earlier
@@ -4379,12 +4356,13 @@ measgap_config_t create_measgap_config(const NR_MeasurementTimingConfiguration_t
 
   mgc.n_slots_advance = mgc.n_slots_mgta + max_k2;
 
-  mgc.mgl_ms = get_mgl(gap_config->mgl);
+  mgc.mgl_ms = get_mgl(mgl);
   DevAssert(mgc.mgl_ms != -1);
-  mgc.mgl = gap_config->mgl;
+  mgc.mgl = mgl;
   mgc.mgl_slots = ((int)(10 * (mgc.mgl_ms + max_k2)) << scs) / 10;
 
   mgc.enable = true;
+
   return mgc;
 }
 
