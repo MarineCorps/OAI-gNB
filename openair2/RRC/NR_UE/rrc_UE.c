@@ -140,7 +140,6 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc,
 static void nr_rrc_ue_process_RadioBearerConfig(NR_UE_RRC_INST_t *ue_rrc,
                                                 NR_RadioBearerConfig_t *const radioBearerConfig);
 static void nr_rrc_ue_generate_rrcReestablishmentComplete(const NR_UE_RRC_INST_t *rrc, const NR_RRCReestablishment_t *rrcReestablishment);
-static void process_lte_nsa_msg(NR_UE_RRC_INST_t *rrc, nsa_msg_t *msg, int msg_len);
 static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECapabilityEnquiry_t *UECapabilityEnquiry);
 static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
                                               OCTET_STRING_t *masterCellGroup,
@@ -2713,10 +2712,6 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   ue_CapabilityRAT_Container->rat_Type = NR_RAT_Type_nr;
   OCTET_STRING_fromBuf(&ue_CapabilityRAT_Container->ue_CapabilityRAT_Container, (const char *)rrc->UECap.sdu, rrc->UECap.sdu_size);
   NR_UECapabilityEnquiry_IEs_t *ueCapabilityEnquiry_ie = UECapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry;
-  if (get_softmodem_params()->nsa == 1) {
-    OCTET_STRING_t *requestedFreqBandsNR = ueCapabilityEnquiry_ie->ue_CapabilityEnquiryExt;
-    nsa_sendmsg_to_lte_ue(requestedFreqBandsNR->buf, requestedFreqBandsNR->size, UE_CAPABILITY_INFO);
-  }
   //  ue_CapabilityRAT_Container.ueCapabilityRAT_Container.buf  = UE_rrc_inst[ue_mod_idP].UECapability;
   // ue_CapabilityRAT_Container.ueCapabilityRAT_Container.size = UE_rrc_inst[ue_mod_idP].UECapability_size;
   AssertFatal(UECapabilityEnquiry->criticalExtensions.present == NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry,
@@ -2797,183 +2792,6 @@ static void nr_rrc_ue_generate_rrcReestablishmentComplete(const NR_UE_RRC_INST_t
   LOG_I(NR_RRC, "[RAPROC] Logical Channel UL-DCCH (SRB1), Generating RRCReestablishmentComplete (bytes %d)\n", size);
   int srb_id = 1; // RRC re-establishment complete on SRB1
   nr_pdcp_data_req_srb(rrc->ue_id, srb_id, 0, size, buffer, deliver_pdu_srb_rlc, NULL);
-}
-
-void *recv_msgs_from_lte_ue(void *args_p)
-{
-  itti_mark_task_ready (TASK_RRC_NSA_NRUE);
-  int from_lte_ue_fd = get_from_lte_ue_fd();
-  for (;;) {
-    nsa_msg_t msg;
-    int recvLen = recvfrom(from_lte_ue_fd, &msg, sizeof(msg), MSG_WAITALL | MSG_TRUNC, NULL, NULL);
-    if (recvLen == -1) {
-      LOG_E(NR_RRC, "%s: recvfrom: %s\n", __func__, strerror(errno));
-      continue;
-    }
-    if (recvLen > sizeof(msg)) {
-      LOG_E(NR_RRC, "%s: Received truncated message %d\n", __func__, recvLen);
-      continue;
-    }
-    process_lte_nsa_msg(get_NR_UE_rrc_inst(0), &msg, recvLen);
-  }
-  return NULL;
-}
-
-static void nsa_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc)
-{
-  NR_UE_NR_Capability_t *UE_Capability_nr = rrc->UECap.UE_NR_Capability = CALLOC(1, sizeof(NR_UE_NR_Capability_t));
-  NR_BandNR_t *nr_bandnr = CALLOC(1, sizeof(NR_BandNR_t));
-  nr_bandnr->bandNR = 78;
-  asn1cSeqAdd(&UE_Capability_nr->rf_Parameters.supportedBandListNR.list, nr_bandnr);
-  OAI_NR_UECapability_t *UECap = CALLOC(1, sizeof(OAI_NR_UECapability_t));
-  UECap->UE_NR_Capability = UE_Capability_nr;
-
-  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_UE_NR_Capability,
-                                   NULL,
-                                   (void *)UE_Capability_nr,
-                                   &UECap->sdu[0],
-                                   MAX_UE_NR_CAPABILITY_SIZE);
-  AssertFatal (enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n",
-               enc_rval.failed_type->name, enc_rval.encoded);
-  UECap->sdu_size = (enc_rval.encoded + 7) / 8;
-  LOG_A(NR_RRC, "[NR_RRC] NRUE Capability encoded, %d bytes (%zd bits)\n",
-        UECap->sdu_size, enc_rval.encoded + 7);
-
-  NR_UE_CapabilityRAT_Container_t ue_CapabilityRAT_Container;
-  memset(&ue_CapabilityRAT_Container, 0, sizeof(NR_UE_CapabilityRAT_Container_t));
-  ue_CapabilityRAT_Container.rat_Type = NR_RAT_Type_nr;
-  OCTET_STRING_fromBuf(&ue_CapabilityRAT_Container.ue_CapabilityRAT_Container,
-                       (const char *)rrc->UECap.sdu,
-                       rrc->UECap.sdu_size);
-
-  nsa_sendmsg_to_lte_ue(ue_CapabilityRAT_Container.ue_CapabilityRAT_Container.buf,
-                        ue_CapabilityRAT_Container.ue_CapabilityRAT_Container.size,
-                        NRUE_CAPABILITY_INFO);
-}
-
-static void process_lte_nsa_msg(NR_UE_RRC_INST_t *rrc, nsa_msg_t *msg, int msg_len)
-{
-  if (msg_len < sizeof(msg->msg_type)) {
-    LOG_E(RRC, "Msg_len = %d\n", msg_len);
-    return;
-  }
-  LOG_D(NR_RRC, "Processing an NSA message\n");
-  Rrc_Msg_Type_t msg_type = msg->msg_type;
-  uint8_t *const msg_buffer = msg->msg_buffer;
-  msg_len -= sizeof(msg->msg_type);
-  switch (msg_type) {
-    case UE_CAPABILITY_ENQUIRY: {
-      LOG_D(NR_RRC, "We are processing a %d message \n", msg_type);
-      NR_FreqBandList_t *nr_freq_band_list = NULL;
-      asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
-                                                     &asn_DEF_NR_FreqBandList,
-                                                     (void **)&nr_freq_band_list,
-                                                     msg_buffer,
-                                                     msg_len);
-      if ((dec_rval.code != RC_OK) && (dec_rval.consumed == 0)) {
-        SEQUENCE_free(&asn_DEF_NR_FreqBandList, nr_freq_band_list, ASFM_FREE_EVERYTHING);
-        LOG_E(RRC, "Failed to decode UECapabilityInfo (%zu bits)\n", dec_rval.consumed);
-        break;
-      }
-      for (int i = 0; i < nr_freq_band_list->list.count; i++) {
-        LOG_D(NR_RRC, "Received NR band information: %ld.\n",
-        nr_freq_band_list->list.array[i]->choice.bandInformationNR->bandNR);
-      }
-      int dummy_msg = 0;// whatever piece of data, it will never be used by sendee
-      LOG_D(NR_RRC, "We are calling nsa_sendmsg_to_lte_ue to send a UE_CAPABILITY_DUMMY\n");
-      nsa_sendmsg_to_lte_ue(&dummy_msg, sizeof(dummy_msg), UE_CAPABILITY_DUMMY);
-      LOG_A(NR_RRC, "Sent initial NRUE Capability response to LTE UE\n");
-      break;
-    }
-
-    case NRUE_CAPABILITY_ENQUIRY: {
-      LOG_I(NR_RRC, "We are processing a %d message \n", msg_type);
-      NR_FreqBandList_t *nr_freq_band_list = NULL;
-      asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
-                                                     &asn_DEF_NR_FreqBandList,
-                                                     (void **)&nr_freq_band_list,
-                                                     msg_buffer,
-                                                     msg_len);
-      if ((dec_rval.code != RC_OK) && (dec_rval.consumed == 0)) {
-        SEQUENCE_free(&asn_DEF_NR_FreqBandList, nr_freq_band_list, ASFM_FREE_EVERYTHING);
-        LOG_E(NR_RRC, "Failed to decode UECapabilityInfo (%zu bits)\n", dec_rval.consumed);
-        break;
-      }
-      LOG_I(NR_RRC, "Calling nsa_rrc_ue_process_ueCapabilityEnquiry\n");
-      nsa_rrc_ue_process_ueCapabilityEnquiry(rrc);
-      break;
-    }
-
-    case RRC_MEASUREMENT_PROCEDURE: {
-      LOG_I(NR_RRC, "We are processing a %d message \n", msg_type);
-
-      LTE_MeasObjectToAddMod_t *nr_meas_obj = NULL;
-      asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
-                                                     &asn_DEF_NR_MeasObjectToAddMod,
-                                                     (void **)&nr_meas_obj,
-                                                     msg_buffer,
-                                                     msg_len);
-      if ((dec_rval.code != RC_OK) && (dec_rval.consumed == 0)) {
-        SEQUENCE_free(&asn_DEF_NR_MeasObjectToAddMod, nr_meas_obj, ASFM_FREE_EVERYTHING);
-        LOG_E(RRC, "Failed to decode measurement object (%zu bits) %d\n", dec_rval.consumed, dec_rval.code);
-        break;
-      }
-      LOG_D(NR_RRC, "NR carrierFreq_r15 (ssb): %ld and sub carrier spacing:%ld\n",
-            nr_meas_obj->measObject.choice.measObjectNR_r15.carrierFreq_r15,
-            nr_meas_obj->measObject.choice.measObjectNR_r15.rs_ConfigSSB_r15.subcarrierSpacingSSB_r15);
-      //start_oai_nrue_threads();
-      break;
-    }
-
-    case RRC_CONFIG_COMPLETE_REQ: {
-      struct msg {
-        uint32_t RadioBearer_size;
-        uint32_t SecondaryCellGroup_size;
-        uint8_t trans_id;
-        uint8_t padding[3];
-        uint8_t buffer[];
-      } hdr;
-      AssertFatal(msg_len >= sizeof(hdr), "Bad received msg\n");
-      memcpy(&hdr, msg_buffer, sizeof(hdr));
-      LOG_I(NR_RRC, "We got an RRC_CONFIG_COMPLETE_REQ\n");
-      uint32_t nr_RadioBearer_size = hdr.RadioBearer_size;
-      uint32_t nr_SecondaryCellGroup_size = hdr.SecondaryCellGroup_size;
-      AssertFatal(sizeof(hdr) + nr_RadioBearer_size + nr_SecondaryCellGroup_size <= msg_len,
-                  "nr_RadioBearerConfig1_r15 size %u nr_SecondaryCellGroupConfig_r15 size %u sizeof(hdr) %zu, msg_len = %d\n",
-                  nr_RadioBearer_size,
-                  nr_SecondaryCellGroup_size,
-                  sizeof(hdr),
-                  msg_len);
-      NR_RRC_TransactionIdentifier_t t_id = hdr.trans_id;
-      LOG_I(NR_RRC, "nr_RadioBearerConfig1_r15 size %d nr_SecondaryCellGroupConfig_r15 size %d t_id %ld\n",
-            nr_RadioBearer_size,
-            nr_SecondaryCellGroup_size,
-            t_id);
-
-      uint8_t *nr_RadioBearer_buffer = msg_buffer + offsetof(struct msg, buffer);
-      uint8_t *nr_SecondaryCellGroup_buffer = nr_RadioBearer_buffer + nr_RadioBearer_size;
-      process_nsa_message(get_NR_UE_rrc_inst(0), nr_SecondaryCellGroupConfig_r15, nr_SecondaryCellGroup_buffer, nr_SecondaryCellGroup_size);
-      process_nsa_message(get_NR_UE_rrc_inst(0), nr_RadioBearerConfigX_r15, nr_RadioBearer_buffer, nr_RadioBearer_size);
-      LOG_I(NR_RRC, "Calling do_NR_RRCReconfigurationComplete. t_id %ld \n", t_id);
-      uint8_t buffer[NR_RRC_BUF_SIZE];
-      size_t size = do_NR_RRCReconfigurationComplete_for_nsa(buffer, sizeof(buffer), t_id);
-      nsa_sendmsg_to_lte_ue(buffer, size, NR_RRC_CONFIG_COMPLETE_REQ);
-      break;
-    }
-
-    case OAI_TUN_IFACE_NSA: {
-      LOG_I(NR_RRC, "We got an OAI_TUN_IFACE_NSA!!\n");
-      char cmd_line[NR_RRC_BUF_SIZE];
-      memcpy(cmd_line, msg_buffer, sizeof(cmd_line));
-      LOG_D(NR_RRC, "Command line: %s\n", cmd_line);
-      if (background_system(cmd_line) != 0)
-        LOG_E(NR_RRC, "ESM-PROC - failed command '%s'", cmd_line);
-      break;
-    }
-
-    default:
-      LOG_E(NR_RRC, "No NSA Message Found\n");
-  }
 }
 
 void handle_RRCRelease(NR_UE_RRC_INST_t *rrc)

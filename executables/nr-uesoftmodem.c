@@ -124,13 +124,6 @@ int create_tasks_nrue(uint32_t ue_nb) {
       LOG_E(NR_RRC, "Create task for RRC UE failed\n");
       return -1;
     }
-    if (get_softmodem_params()->nsa) {
-      init_connections_with_lte_ue();
-      if (itti_create_task (TASK_RRC_NSA_NRUE, recv_msgs_from_lte_ue, NULL) < 0) {
-        LOG_E(NR_RRC, "Create task for RRC NSA nr-UE failed\n");
-        return -1;
-      }
-    }
     const ittiTask_parms_t parmsNAS = {NULL, nas_nrue};
     if (itti_create_task(TASK_NAS_NRUE, nas_nrue_task, &parmsNAS) < 0) {
       LOG_E(NR_RRC, "Create task for NAS UE failed\n");
@@ -292,14 +285,6 @@ void init_openair0(PHY_VARS_NR_UE *ue)
   }
 }
 
-static void init_pdcp(int ue_id)
-{
-  if (get_softmodem_params()->nsa && nr_rlc_module_init(NR_RLC_OP_MODE_UE) != 0) {
-    LOG_I(RLC, "Problem at RLC initiation \n");
-  }
-  nr_pdcp_layer_init();
-}
-
 // Stupid function addition because UE itti messages queues definition is common with eNB
 void *rrc_enb_process_msg(void *notUsed) {
   return NULL;
@@ -395,15 +380,7 @@ int main(int argc, char **argv)
     exit(-1); // need a softer mode
   }
 
-  int mode_offset = get_softmodem_params()->nsa ? NUMBER_OF_UE_MAX : 1;
-  uint16_t node_number = get_softmodem_params()->node_number;
-  ue_id_g = (node_number == 0) ? 0 : node_number - 2;
-  AssertFatal(ue_id_g >= 0, "UE id is expected to be nonnegative.\n");
-
-  if (node_number == 0)
-    init_pdcp(0);
-  else
-    init_pdcp(mode_offset + ue_id_g);
+  nr_pdcp_layer_init();
   nas_init_nrue(NB_UE_INST);
 
   init_NR_UE(NB_UE_INST, get_nrUE_params()->uecap_file, get_nrUE_params()->reconfig_file, get_nrUE_params()->rbconfig_file);

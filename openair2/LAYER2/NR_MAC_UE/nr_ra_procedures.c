@@ -835,34 +835,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac, int frame)
 
   // TODO this piece of code is required to compute MSG3_size that is used by ra_preambles_config function
   // Not a good implementation, it needs improvements
-  int size_sdu = 0;
-
-  // Concerning the C-RNTI MAC CE,
-  // it has to be included if the UL transmission (Msg3) is not being made for the CCCH logical channel.
-  // Therefore it has been assumed that this event only occurs only when RA is done and it is not SA mode.
-  if (get_softmodem_params()->nsa) {
-
-    uint8_t mac_sdus[34 * 1056];
-    uint16_t sdu_lengths[NB_RB_MAX] = {0};
-    int TBS_bytes = 848;
-    int mac_ce_len = 0;
-    unsigned short post_padding = 1;
-
-    // fill ulsch_buffer with random data
-    for (int i = 0; i < TBS_bytes; i++) {
-      mac_sdus[i] = (unsigned char)(rand()&0xff);
-    }
-    // Sending SDUs with size 1
-    // Initialize elements of sdu_lengths
-    sdu_lengths[0] = TBS_bytes - 3 - post_padding - mac_ce_len;
-    size_sdu += sdu_lengths[0];
-
-    if (size_sdu > 0) {
-      memcpy(ra->cont_res_id, mac_sdus, sizeof(uint8_t) * 6);
-      ra->Msg3_size = size_sdu + sizeof(NR_MAC_SUBHEADER_SHORT) + sizeof(NR_MAC_SUBHEADER_SHORT);
-    }
-
-  } else if (!IS_SA_MODE(get_softmodem_params()))
+  if (!IS_SA_MODE(get_softmodem_params()))
     ra->Msg3_size = sizeof(uint16_t) + sizeof(NR_MAC_SUBHEADER_FIXED);
 
   // Random acces procedure initialization

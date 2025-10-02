@@ -47,7 +47,6 @@ void nr_mac_rrc_inactivity_timer_ind(const module_id_t mod_id);
 void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, bool prepare_payload);
 void nr_ue_rrc_timer_trigger(int instance, int frame, int gnb_id);
 void nr_mac_rrc_ra_ind(const module_id_t mod_id, bool success);
-void nsa_sendmsg_to_lte_ue(const void *message, size_t msg_len, Rrc_Msg_Type_t msg_type);
 void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id);
 #endif
 

@@ -2160,7 +2160,7 @@ void *nas_nrue(void *args_p)
 
       case NAS_INIT_NOS1_IF: {
         const int pdu_session_id = get_softmodem_params()->default_pdu_session_id;
-        const char *ip = !get_softmodem_params()->nsa ? "10.0.1.2" : "10.0.1.3";
+        const char *ip = "10.0.1.2";
         const int qfi = 7;
         create_ue_ip_if(ip, NULL, nas->UE_id, pdu_session_id);
         set_qfi(qfi, pdu_session_id, nas->UE_id);
