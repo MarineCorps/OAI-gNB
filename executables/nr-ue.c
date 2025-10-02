@@ -31,13 +31,10 @@
 #include "SCHED_NR_UE/defs.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "executables/softmodem-common.h"
-#include "PHY/NR_REFSIG/refsig_defs_ue.h"
 #include "radio/COMMON/common_lib.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
-#include "RRC/NR/MESSAGES/asn1_msg.h"
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
-#include "PHY/MODULATION/nr_modulation.h"
 #include "instrumentation.h"
 #include "common/utils/threadPool/notified_fifo.h"
 #include "position_interface.h"
@@ -101,8 +98,6 @@
  * By example, for LTE, subframe processing is spread over 4 different threads.
  *
  */
-
-static void *NRUE_phy_stub_standalone_pnf_task(void *arg);
 
 static void start_process_slot_tx(void* arg) {
   notifiedFIFO_elt_t *newTx = arg;
@@ -193,189 +188,6 @@ void init_nr_ue_vars(PHY_VARS_NR_UE *ue, uint8_t UE_id)
   ue->ta_frame = -1;
   ue->ta_slot = -1;
 }
-
-void init_nrUE_standalone_thread(int ue_idx)
-{
-  int standalone_tx_port = 3611 + ue_idx * 2;
-  int standalone_rx_port = 3612 + ue_idx * 2;
-  nrue_init_standalone_socket(standalone_tx_port, standalone_rx_port);
-
-  NR_UE_MAC_INST_t *mac = get_mac_inst(0);
-  pthread_mutex_init(&mac->mutex_dl_info, NULL);
-
-  pthread_t thread;
-  if (pthread_create(&thread, NULL, nrue_standalone_pnf_task, NULL) != 0) {
-    LOG_E(NR_MAC, "pthread_create failed for calling nrue_standalone_pnf_task");
-  }
-  pthread_setname_np(thread, "oai:nrue-stand");
-  pthread_t phy_thread;
-  if (pthread_create(&phy_thread, NULL, NRUE_phy_stub_standalone_pnf_task, NULL) != 0) {
-    LOG_E(NR_MAC, "pthread_create failed for calling NRUE_phy_stub_standalone_pnf_task");
-  }
-  pthread_setname_np(phy_thread, "oai:nrue-stand-phy");
-}
-
-static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slot)
-{
-  struct sfn_slot_s sfn_slot = {.sfn = sfn, .slot = slot};
-  nfapi_nr_rach_indication_t *rach_ind = unqueue_matching(&nr_rach_ind_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_slot);
-  nfapi_nr_dl_tti_request_t *dl_tti_request = get_queue(&nr_dl_tti_req_queue);
-  nfapi_nr_ul_dci_request_t *ul_dci_request = get_queue(&nr_ul_dci_req_queue);
-
-  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
-    LOG_D(NR_MAC,
-          "Try to get a ul_tti_req by matching CRC active sfn/slot %d.%d from queue with %lu items\n",
-          sfn,
-          slot,
-          nr_ul_tti_req_queue.num_items);
-    struct sfn_slot_s sfn_sf = {.sfn = mac->nr_ue_emul_l1.harq[i].active_ul_harq_sfn, .slot = mac->nr_ue_emul_l1.harq[i].active_ul_harq_slot };
-    nfapi_nr_ul_tti_request_t *ul_tti_request_crc = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_sf);
-    if (ul_tti_request_crc && ul_tti_request_crc->n_pdus > 0) {
-      check_and_process_dci(NULL, NULL, NULL, ul_tti_request_crc);
-      free_and_zero(ul_tti_request_crc);
-    }
-  }
-
-  if (rach_ind && rach_ind->number_of_pdus > 0) {
-      NR_UL_IND_t UL_INFO = {
-        .rach_ind = *rach_ind,
-      };
-      send_nsa_standalone_msg(&UL_INFO, rach_ind->header.message_id);
-      free_and_zero(rach_ind->pdu_list);
-      free_and_zero(rach_ind);
-  }
-  if (dl_tti_request) {
-    struct sfn_slot_s sfn_slot = {.sfn = dl_tti_request->SFN, .slot = dl_tti_request->Slot};
-    nfapi_nr_tx_data_request_t *tx_data_request = unqueue_matching(&nr_tx_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_slot);
-    if (!tx_data_request) {
-      LOG_E(NR_MAC, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot\n",
-            dl_tti_request->SFN, dl_tti_request->Slot);
-      if (get_softmodem_params()->nsa)
-        save_nr_measurement_info(dl_tti_request);
-      free_and_zero(dl_tti_request);
-    }
-    else if (dl_tti_request->dl_tti_request_body.nPDUs > 0 && tx_data_request->Number_of_PDUs > 0) {
-      if (get_softmodem_params()->nsa)
-        save_nr_measurement_info(dl_tti_request);
-      check_and_process_dci(dl_tti_request, tx_data_request, NULL, NULL);
-      free_and_zero(dl_tti_request);
-      free_and_zero(tx_data_request);
-    }
-    else {
-      AssertFatal(false, "We dont have PDUs in either dl_tti %d or tx_req %d\n",
-                  dl_tti_request->dl_tti_request_body.nPDUs, tx_data_request->Number_of_PDUs);
-    }
-  }
-  if (ul_dci_request && ul_dci_request->numPdus > 0) {
-    check_and_process_dci(NULL, NULL, ul_dci_request, NULL);
-    free_and_zero(ul_dci_request);
-  }
-}
-
-static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
-{
-  LOG_I(MAC, "Clearing Queues\n");
-  reset_queue(&nr_rach_ind_queue);
-  reset_queue(&nr_rx_ind_queue);
-  reset_queue(&nr_crc_ind_queue);
-  reset_queue(&nr_uci_ind_queue);
-  reset_queue(&nr_dl_tti_req_queue);
-  reset_queue(&nr_tx_req_queue);
-  reset_queue(&nr_ul_dci_req_queue);
-  reset_queue(&nr_ul_tti_req_queue);
-
-  int last_sfn_slot = -1;
-  uint16_t sfn_slot = 0;
-
-  module_id_t mod_id = 0;
-  NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
-  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
-      mac->nr_ue_emul_l1.harq[i].active = false;
-      mac->nr_ue_emul_l1.harq[i].active_ul_harq_sfn = -1;
-      mac->nr_ue_emul_l1.harq[i].active_ul_harq_slot = -1;
-  }
-
-  while (!oai_exit) {
-    if (sem_wait(&sfn_slot_semaphore) != 0) {
-      LOG_E(NR_MAC, "sem_wait() error\n");
-      abort();
-    }
-    uint16_t *slot_ind = get_queue(&nr_sfn_slot_queue);
-    nr_phy_channel_params_t *ch_info = get_queue(&nr_chan_param_queue);
-    if (!slot_ind && !ch_info) {
-      LOG_D(MAC, "get nr_sfn_slot_queue and nr_chan_param_queue == NULL!\n");
-      continue;
-    }
-    if (slot_ind) {
-      sfn_slot = *slot_ind;
-      free_and_zero(slot_ind);
-    }
-    else if (ch_info) {
-      sfn_slot = ch_info->sfn_slot;
-      free_and_zero(ch_info);
-    }
-
-    int mu = 1; // NR-UE emul-L1 is hardcoded to 30kHZ, see check_and_process_dci()
-    frame_t frame = NFAPI_SFNSLOTDEC2SFN(mu, sfn_slot);
-    int slot = NFAPI_SFNSLOTDEC2SLOT(mu, sfn_slot);
-    if (sfn_slot == last_sfn_slot) {
-      LOG_D(NR_MAC, "repeated sfn_sf = %d.%d\n",
-            frame, slot);
-      continue;
-    }
-    last_sfn_slot = sfn_slot;
-
-    LOG_D(NR_MAC, "The received sfn/slot [%d %d] from proxy\n",
-          frame, slot);
-
-    if (IS_SA_MODE(get_softmodem_params()) && mac->mib == NULL) {
-      LOG_D(NR_MAC, "We haven't gotten MIB. Lets see if we received it\n");
-      nr_ue_dl_indication(&mac->dl_info);
-      process_queued_nr_nfapi_msgs(mac, frame, slot);
-    }
-
-    int CC_id = 0;
-    uint8_t gNB_id = 0;
-    int slots_per_frame = 20; //30 kHZ subcarrier spacing
-    int slot_ahead = 2; // TODO: Make this dynamic
-    nr_uplink_indication_t ul_info = {.cc_id = CC_id,
-                                      .gNB_index = gNB_id,
-                                      .module_id = mod_id,
-                                      .slot = (slot + slot_ahead) % slots_per_frame,
-                                      .frame = (slot + slot_ahead >= slots_per_frame) ? (frame + 1) % 1024 : frame};
-
-    if (pthread_mutex_lock(&mac->mutex_dl_info)) abort();
-
-    if (ch_info) {
-      mac->nr_ue_emul_l1.pmi = ch_info->csi[0].pmi;
-      mac->nr_ue_emul_l1.ri = ch_info->csi[0].ri;
-      mac->nr_ue_emul_l1.cqi = ch_info->csi[0].cqi;
-      free_and_zero(ch_info);
-    }
-
-    if (is_dl_slot(slot, &mac->frame_structure)) {
-      memset(&mac->dl_info, 0, sizeof(mac->dl_info));
-      mac->dl_info.cc_id = CC_id;
-      mac->dl_info.gNB_index = gNB_id;
-      mac->dl_info.module_id = mod_id;
-      mac->dl_info.frame = frame;
-      mac->dl_info.slot = slot;
-      mac->dl_info.dci_ind = NULL;
-      mac->dl_info.rx_ind = NULL;
-      nr_ue_dl_indication(&mac->dl_info);
-    }
-
-    if (pthread_mutex_unlock(&mac->mutex_dl_info)) abort();
-
-    if (is_ul_slot(ul_info.slot, &mac->frame_structure)) {
-      LOG_D(NR_MAC, "Slot %d. calling nr_ue_ul_ind()\n", ul_info.slot);
-      nr_ue_ul_scheduler(mac, &ul_info);
-    }
-    process_queued_nr_nfapi_msgs(mac, frame, slot);
-  }
-  return NULL;
-}
-
 
 /*!
  * It performs band scanning and synchonization.

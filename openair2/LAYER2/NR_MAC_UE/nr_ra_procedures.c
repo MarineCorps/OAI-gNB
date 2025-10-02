@@ -1253,7 +1253,6 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[pid];
   int sched_slot = current_harq->ul_slot;
   int sched_frame = current_harq->ul_frame;
-  mac->nr_ue_emul_l1.num_harqs = 1;
   PUCCH_sched_t pucch = {.n_CCE = current_harq->n_CCE,
                          .N_CCE = current_harq->N_CCE,
                          .ack_payload = ack_nack,

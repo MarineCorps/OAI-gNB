@@ -1718,10 +1718,6 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
 static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot)
 {
   PUCCH_sched_t pucch[3] = {0}; // TODO the size might change in the future in case of multiple SR or multiple CSI in a slot
-
-  mac->nr_ue_emul_l1.num_srs = 0;
-  mac->nr_ue_emul_l1.num_harqs = 0;
-  mac->nr_ue_emul_l1.num_csi_reports = 0;
   int num_res = 0;
 
   if (mac->ra.ra_pucch) {
@@ -1771,9 +1767,6 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
             pucch[j].n_harq,
             pucch[j].n_sr,
             pucch[j].n_csi);
-      mac->nr_ue_emul_l1.num_srs = pucch[j].n_sr;
-      mac->nr_ue_emul_l1.num_harqs = pucch[j].n_harq;
-      mac->nr_ue_emul_l1.num_csi_reports = pucch[j].n_csi;
 
       // checking if we need to schedule pucch[j] on PUSCH
       if (schedule_uci_on_pusch(mac, frame, slot, &pucch[j], mac->current_UL_BWP))
@@ -1784,9 +1777,6 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
         LOG_E(NR_MAC, "Error in pucch allocation\n");
         return;
       }
-      DevAssert(mac->current_DL_BWP != NULL);
-      int mu = mac->current_DL_BWP->scs;
-      mac->nr_ue_emul_l1.active_uci_sfn_slot = NFAPI_SFNSLOT2DEC(mu, frame, slot);
       int ret = nr_ue_configure_pucch(mac,
                                       slot,
                                       frame,

@@ -74,8 +74,6 @@ void *recv_msgs_from_lte_ue(void *args_p);
 
 void init_connections_with_lte_ue(void);
 
-extern void start_oai_nrue_threads(void);
-
 int get_from_lte_ue_fd();
 
 void nr_rrc_SI_timers(NR_UE_RRC_SI_INFO *SInfo);

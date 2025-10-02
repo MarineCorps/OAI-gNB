@@ -137,8 +137,6 @@ extern int setup_nr_ue_buffers(PHY_VARS_NR_UE **phy_vars_ue, openair0_config_t *
 extern void fill_ue_band_info(void);
 extern void init_NR_UE(int, char *, char *, char *);
 extern void init_NR_UE_threads(PHY_VARS_NR_UE *ue);
-void start_oai_nrue_threads(void);
 void *UE_thread(void *arg);
 void init_nr_ue_vars(PHY_VARS_NR_UE *ue, uint8_t UE_id);
-void init_nrUE_standalone_thread(int ue_idx);
 #endif

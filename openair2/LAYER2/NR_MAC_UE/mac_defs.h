@@ -646,8 +646,6 @@ typedef struct NR_UE_MAC_INST_s {
   NR_TimeAlignmentTimer_t timeAlignmentTimerCommon;
   NR_timer_t time_alignment_timer;
 
-  nr_emulated_l1_t nr_ue_emul_l1;
-
   pthread_mutex_t mutex_dl_info;
 
   //SIDELINK MAC PARAMETERS

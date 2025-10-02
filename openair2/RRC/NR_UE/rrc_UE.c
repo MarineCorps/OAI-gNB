@@ -2921,7 +2921,7 @@ static void process_lte_nsa_msg(NR_UE_RRC_INST_t *rrc, nsa_msg_t *msg, int msg_l
       LOG_D(NR_RRC, "NR carrierFreq_r15 (ssb): %ld and sub carrier spacing:%ld\n",
             nr_meas_obj->measObject.choice.measObjectNR_r15.carrierFreq_r15,
             nr_meas_obj->measObject.choice.measObjectNR_r15.rs_ConfigSSB_r15.subcarrierSpacingSSB_r15);
-      start_oai_nrue_threads();
+      //start_oai_nrue_threads();
       break;
     }
 

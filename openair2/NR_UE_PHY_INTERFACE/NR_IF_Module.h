@@ -34,11 +34,8 @@
 #define __NR_IF_MODULE_H__
 
 #include "common/platform_types.h"
-#include <semaphore.h>
 #include "fapi_nr_ue_interface.h"
-#include "openair2/PHY_INTERFACE/queue_t.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
-#include "NR_Packet_Drop.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/sidelink_nr_ue_interface.h"
 
 typedef enum sl_sidelink_slot_type {
@@ -49,19 +46,6 @@ typedef enum sl_sidelink_slot_type {
   SIDELINK_SLOT_TYPE_BOTH
 
 } sl_sidelink_slot_type_t;
-
-extern queue_t nr_rach_ind_queue;
-extern queue_t nr_rx_ind_queue;
-extern queue_t nr_crc_ind_queue;
-extern queue_t nr_uci_ind_queue;
-extern queue_t nr_sfn_slot_queue;
-extern queue_t nr_chan_param_queue;
-extern queue_t nr_dl_tti_req_queue;
-extern queue_t nr_tx_req_queue;
-extern queue_t nr_ul_dci_req_queue;
-extern queue_t nr_ul_tti_req_queue;
-
-extern slot_rnti_mcs_s slot_rnti_mcs[NUM_NFAPI_SLOT];
 
 typedef struct NR_UL_TIME_ALIGNMENT NR_UL_TIME_ALIGNMENT_t;
 
@@ -291,32 +275,6 @@ typedef struct nr_ue_if_module_s {
 /**\brief reserved one of the interface(if) module instantce from pointer pool and done memory allocation by module_id.
    \param module_id module id*/
 nr_ue_if_module_t *nr_ue_if_module_init(uint32_t module_id);
-
-void nrue_init_standalone_socket(int tx_port, int rx_port);
-
-void *nrue_standalone_pnf_task(void *context);
-extern sem_t sfn_slot_semaphore;
-
-typedef struct nfapi_dl_tti_config_req_tx_data_req_t
-{
-    nfapi_nr_dl_tti_request_pdu_t *dl_itti_config_req;
-    nfapi_nr_tx_data_request_t *tx_data_req_pdu_list;
-} nfapi_dl_tti_config_req_tx_data_req_t;
-
-void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id);
-
-void save_nr_measurement_info(nfapi_nr_dl_tti_request_t *dl_tti_request);
-
-void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
-                           nfapi_nr_tx_data_request_t *tx_data_request,
-                           nfapi_nr_ul_dci_request_t *ul_dci_request,
-                           nfapi_nr_ul_tti_request_t *ul_tti_request);
-
-struct sfn_slot_s {
-  int sfn;
-  int slot;
-};
-bool sfn_slot_matcher(void *sfn_slot_s, void *candidate);
 
 /**\brief interface between L1/L2, indicating the downlink related information, like dci_ind and rx_req
    \param dl_info including dci_ind and rx_request messages*/

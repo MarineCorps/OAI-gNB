@@ -1942,8 +1942,7 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
   if (mac->state == UE_RECEIVING_SIB && can_start_ra)
     mac->state = UE_PERFORMING_RA;
 
-  if (!get_softmodem_params()->emulate_l1)
-    mac->if_module->phy_config_request(&mac->phy_config);
+  mac->if_module->phy_config_request(&mac->phy_config);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
@@ -2002,13 +2001,11 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
   ra->ra_state = nrRA_UE_IDLE;
   nr_ue_mac_default_configs(mac);
 
-  if (!get_softmodem_params()->emulate_l1) {
-    mac->synch_request.Mod_id = mac->ue_id;
-    mac->synch_request.CC_id = cc_idP;
-    mac->synch_request.synch_req.target_Nid_cell = mac->physCellId;
-    mac->if_module->synch_request(&mac->synch_request);
-    mac->if_module->phy_config_request(&mac->phy_config);
-  }
+  mac->synch_request.Mod_id = mac->ue_id;
+  mac->synch_request.CC_id = cc_idP;
+  mac->synch_request.synch_req.target_Nid_cell = mac->physCellId;
+  mac->if_module->synch_request(&mac->synch_request);
+  mac->if_module->phy_config_request(&mac->phy_config);
 }
 
 static void configure_physicalcellgroup(NR_UE_MAC_INST_t *mac,
