@@ -673,8 +673,7 @@ bool nr_find_nb_rb(uint16_t Qm,
                    uint16_t *nb_rb)
 {
   // for transform precoding only RB = 2^a_2 * 3^a_3 * 5^a_5 is allowed with a non-negative
-  while(transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled &&
-        !multiple_2_3_5(nb_rb_max))
+  while (transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled && !multiple_2_3_5(nb_rb_max))
     nb_rb_max--;
 
   /* is the maximum (not even) enough? */
