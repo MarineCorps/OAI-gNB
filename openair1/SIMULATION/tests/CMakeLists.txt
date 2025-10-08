@@ -1,3 +1,18 @@
+# This defines a cmake file with timing thresholds to include (empty by default)
+set(PHYSIM_CHECK_FILES "" CACHE STRING "CMake files ('\;' separated) with timing thresholds to include for timed physim tests")
+
+if(PHYSIM_CHECK_FILES)
+  foreach(PHYSIM_CHECK_FILE IN LISTS PHYSIM_CHECK_FILES)
+    # Construct full path relative to current source dir
+    set(CHECK_FILE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${PHYSIM_CHECK_FILE}")
+    if(EXISTS "${CHECK_FILE_PATH}")
+      message(STATUS "Including file for physim timing threshold check: ${PHYSIM_CHECK_FILE}")
+    else()
+      message(FATAL_ERROR "Threshold file '${PHYSIM_CHECK_FILE}' not found at ${CHECK_FILE_PATH}")
+    endif()
+  endforeach()
+endif()
+
 define_property(TEST PROPERTY TEST_DESCRIPTION
                 BRIEF_DOCS "A human-readable description of this test"
                 FULL_DOCS "A human-readable description of this test")
@@ -398,6 +413,10 @@ add_timed_physim_test(physim.5g-offload.nr_ulsim.testT2.8  "T2 LDPC offload: SNR
 add_timed_physim_test(physim.5g-offload.nr_ulsim.testCPU.9 "CPU: SNR = 30, MCS = 25, 273 PRBs, 2 layers"             nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -W2 -z2 -y2 -P)
 add_timed_physim_test(physim.5g-offload.nr_ulsim.testT2.9  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
 
-include(ThresholdsOffload.cmake)
+endif()
 
+if(PHYSIM_CHECK_FILES)
+  foreach(PHYSIM_CHECK_FILE IN LISTS PHYSIM_CHECK_FILES)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/${PHYSIM_CHECK_FILE}")
+  endforeach()
 endif()
