@@ -343,23 +343,13 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
 
     switch (Layers) {
       case 1:
-#ifdef  ENABLE_AERIAL
-        dmrs.dmrs_ports_id = 3;
-        dmrs.numDmrsCdmGrpsNoData = 2;
-#else
         dmrs.dmrs_ports_id = 0;
         dmrs.numDmrsCdmGrpsNoData = 1;
-#endif
         frontloaded_symb = 1;
         break;
       case 2:
-#ifdef  ENABLE_AERIAL
-        dmrs.dmrs_ports_id = 7;
-        dmrs.numDmrsCdmGrpsNoData = 2;
-#else
         dmrs.dmrs_ports_id = 2;
         dmrs.numDmrsCdmGrpsNoData = 1;
-#endif
         frontloaded_symb = 1;
         break;
       case 3:
@@ -737,15 +727,10 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const int Layers)
 {
   NR_pusch_dmrs_t dmrs = {0};
-  // TODO setting of cdm groups with no data to be redone for MIMO
-  if(NFAPI_MODE == NFAPI_MODE_AERIAL) {
+  if (ul_bwp->transform_precoding && Layers < 3)
+    dmrs.num_dmrs_cdm_grps_no_data = ul_bwp->dci_format == NR_UL_DCI_FORMAT_0_1 || tda_info->nrOfSymbols <= 2 ? 1 : 2;
+  else
     dmrs.num_dmrs_cdm_grps_no_data = 2;
-  } else {
-    if (ul_bwp->transform_precoding && Layers < 3)
-      dmrs.num_dmrs_cdm_grps_no_data = ul_bwp->dci_format == NR_UL_DCI_FORMAT_0_1 || tda_info->nrOfSymbols <= 2 ? 1 : 2;
-    else
-      dmrs.num_dmrs_cdm_grps_no_data = 2;
-  }
 
   const NR_DMRS_UplinkConfig_t *NR_DMRS_UplinkConfig = get_DMRS_UplinkConfig(ul_bwp->pusch_Config, tda_info);
   dmrs.ptrsConfig = NR_DMRS_UplinkConfig
@@ -1246,8 +1231,7 @@ void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
 
       // antenna_ports.val = 0 for transform precoder is disabled, dmrs-Type=1, maxLength=1, Rank=1/2/3/4
       // Antenna Ports
-
-      dci_pdu_rel15->antenna_ports.val = NFAPI_MODE == NFAPI_MODE_AERIAL ? 2 : 0;
+      dci_pdu_rel15->antenna_ports.val = 0;
 
       // DMRS sequence initialization
       dci_pdu_rel15->dmrs_sequence_initialization.val = pusch_pdu->scid;
