@@ -31,7 +31,7 @@ The following features are valid for the gNB and the 5G-NR UE.
 *  Subcarrier spacings: 15 and 30kHz (FR1), 120kHz (FR2)
 *  Bandwidths: 10, 20, 40, 60, 80, 100MHz
 *  Intermediate downlink and uplink frequencies to interface with IF equipment
-*  Procedures for 2-layer DL and UL MIMO
+*  Procedures for 4-layer DL and 2-layer UL SU-MIMO
 *  Slot format: 14 OFDM symbols in UL or DL
 *  Highly efficient 3GPP compliant LDPC encoder and decoder (BG1 and BG2 supported)
 *  Highly efficient 3GPP compliant polar encoder and decoder
@@ -47,7 +47,7 @@ These modes of operation are supported:
 * "noS1" mode (DL and UL, gNB, nrUE):
   - Connection setup stops after RA; RRC configuration is exchanged through
     files
-  - Creates TUN interface to PDCP to inject and receive user-place traffic
+  - Creates TUN interface to SDAP to inject and receive user-place traffic
   - No connection to the core network
 * Standalone (SA) mode (gNB, nrUE):
   - UE can register with the 5G Core Network through the gNB, establish a PDU
@@ -73,7 +73,7 @@ These modes of operation are supported:
    - Single and multiple DMRS symbols
    - PTRS support
    - Support for up to 4 TX antennas
-   - Support for up to 2 layers
+   - Support for up to 4 layers
    - Support for 256 QAM
 *  NR-CSIRS Generation of sequence at PHY
 *  NR-PUSCH (including Segmentation, LDPC encoding, rate matching, scrambling, modulation, RB mapping, etc).
@@ -104,7 +104,9 @@ These modes of operation are supported:
 ## gNB MAC
 
 - MAC -> PHY configuration using NR FAPI P5 interface
-- MAC <-> PHY data interface using FAPI P7 interface for BCH PDU, DCI PDU, PDSCH PDU
+- MAC <-> PHY data interface using FAPI P7 interface for DL_TTI.request,
+  UL_TTI.request, UL_DCI.request, TX_data.request, RX_Data.indication,
+  CRC.indication, UCI.indication, SRS.indication
 - Generation of and scheduler procedures for MIB/SIB1
 - Scheduler procedures for RA
     - 4-Step RA
@@ -125,7 +127,7 @@ These modes of operation are supported:
   - regular scheduler with dynamic proportionally-fair allocation
   - MCS adaptation from HARQ BLER
 - MAC header generation (including timing advance)
-- ACK / NACK handling and HARQ procedures for downlink
+- ACK/NACK handling and HARQ procedures for downlink
 - MAC uplink scheduler
   - phy-test scheduler (fixed allocation)
   - regular scheduler with dynamic proportionally-fair allocation
@@ -144,6 +146,9 @@ These modes of operation are supported:
       neighbors include cells operating on different frequencies
     - DUs must be synchronized with each other for the measurements to be properly performed
 - Initial support for RedCap
+  - RedCap SIB1 v17 IEs supported
+  - Coexistence of RedCap and Normal UEs
+  - Handling of RedCap capability for small PDCP/RLC SN size
 - Scheduling of SIBs (2, 19)
 
 ## gNB RLC
@@ -180,7 +185,7 @@ These modes of operation are supported:
 - NR RRC (38.331) Rel 17 messages using new [asn1c](https://github.com/mouse07410/asn1c)
 - LTE RRC (36.331) also updated to Rel 15
 - Generation of system information (SIB2)
-- RRC can configure PDCP, RLC, MAC
+- RRC can configure PDCP and SDAP (through E1), and RLC and MAC (through F1)
 - Interface with GTP-U (tunnel creation/handling for S1-U (NSA), N3 (SA), F1 interfaces)
 - Integration of RRC messages and procedures supporting UE 5G SA connection
   - RRCSetupRequest/RRCSetup/RRCSetupComplete
@@ -190,8 +195,10 @@ These modes of operation are supported:
   - Support for MasterCellGroup configuration (from DU)
   - Interface with NGAP for the interactions with the AMF
   - Interface with F1AP for CU/DU split deployment option
-  - Periodic RRC measurements of serving cell (no A/B events)
-- Initial support for RedCap
+  - Interface with E1AP for CU-CP/CU-CP split deployment option
+  - Periodic RRC measurements of serving/neighbour cells and A2/A3 event
+    handling
+- Initial support for RedCap (see MAC)
 
 ## gNB X2AP
 
@@ -226,6 +233,7 @@ These modes of operation are supported:
     * F1 UE Context modification required
     * F1 UE Context release req/cmd/complete
   - F1 gNB CU configuration update
+  - F1 gNB DU configuration update
   - F1 Reset (handled at DU only, full reset only)
 - Interface with RRC
 - Interface with GTP-u (tunnel creation/handling for F1-U interface)
@@ -245,7 +253,8 @@ These modes of operation are supported:
   - Bearer Context Modification (gNB-CU-CP initiated)
       - E1 Bearer Context Modification Request
       - E1 Bearer Context Modification Response
-- Interface with RRC and PDCP
+  - E1 Reset
+- Interface with RRC and PDCP/SDAP
 - One CU-CP can handle multiple CU-UPs
 
 ## gNB GTP-U
