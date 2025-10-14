@@ -152,6 +152,17 @@ void reverse_bits_u8(uint8_t const* in, size_t sz, uint8_t* out)
 #endif
 }
 
+/** @brief 3GPP TS 38.133 Table 10.1.6.1-1 mapping from dBm to RSRP index */
+uint8_t get_rsrp_index(int rsrp_dBm)
+{
+  int index = rsrp_dBm + 157;
+  if (rsrp_dBm > -44)
+    index = 113;
+  if (rsrp_dBm < -140)
+    index = 16;
+  return (uint8_t)index;
+}
+
 // Reverse bits implementation based on http://graphics.stanford.edu/~seander/bithacks.html
 uint64_t reverse_bits(uint64_t in, int n_bits)
 {

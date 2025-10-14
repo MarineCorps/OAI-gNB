@@ -3057,15 +3057,14 @@ void nr_rrc_set_mac_queue(instance_t instance, notifiedFIFO_t *mac_input_nf)
 void rrc_ue_generate_measurementReport(rrcPerNB_t *rrc, instance_t ue_id)
 {
   uint8_t buffer[NR_RRC_BUF_SIZE];
-  NR_MeasurementReport_t measurementReport = {0};
   l3_measurements_t *l3m = &rrc->l3_measurements;
   int rsrp_dBm = l3m->rs_type == NR_NR_RS_Type_ssb ? l3m->serving_cell.ss_rsrp_dBm.val : l3m->serving_cell.csi_rsrp_dBm.val;
-  uint8_t size = do_nrMeasurementReport_SA(&measurementReport,
-                                           l3m->trigger_to_measid,
+  int rsrp_index = get_rsrp_index(rsrp_dBm);
+  uint8_t size = do_nrMeasurementReport_SA(l3m->trigger_to_measid,
                                            l3m->trigger_quantity,
                                            l3m->rs_type,
                                            l3m->serving_cell.Nid_cell,
-                                           rsrp_dBm,
+                                           rsrp_index,
                                            buffer,
                                            sizeof(buffer));
 

@@ -186,6 +186,9 @@ typedef struct meas_s {
   val_init_t csi_rsrp_dBm;
 } meas_t;
 
+/** @brief Returns NR RSRP index per 3GPP TS 38.133 Table 10.1.6.1-1 */
+uint8_t get_rsrp_index(int rsrp_dBm);
+
 /**
  * @brief To start a timer
  * @param timer Timer to be started

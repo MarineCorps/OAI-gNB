@@ -125,12 +125,11 @@ int do_NR_MeasurementTimingConfiguration(const NR_MeasurementTimingConfiguration
 
 int do_RRCSetupRequest(uint8_t *buffer, size_t buffer_size, uint8_t *rv, uint64_t fiveG_S_TMSI_part1);
 
-int do_nrMeasurementReport_SA(NR_MeasurementReport_t *measurementReport,
-                              long trigger_to_measid,
+int do_nrMeasurementReport_SA(long trigger_to_measid,
                               long trigger_quantity,
                               long rs_type,
                               uint16_t Nid_cell,
-                              int rsrp_dBm,
+                              int rsrp_index,
                               uint8_t *buffer,
                               size_t buffer_size);
 

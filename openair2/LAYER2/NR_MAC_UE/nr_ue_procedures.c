@@ -2908,17 +2908,6 @@ static int compare_ssb_rsrp(const void *a, const void *b)
   return mb->ssb_rsrp_dBm - ma->ssb_rsrp_dBm;
 }
 
-// returns index from RSRP
-// according to Table 10.1.6.1-1 in 38.133
-static uint8_t get_rsrp_index(int rsrp)
-{
-  int index = rsrp + 157;
-  if (rsrp > -44)
-    index = 113;
-  if (rsrp < -140)
-    index = 16;
-  return index;
-}
 
 static csi_payload_t get_ssb_rsrp_payload(NR_UE_MAC_INST_t *mac,
                                           struct NR_CSI_ReportConfig *csi_reportconfig,
