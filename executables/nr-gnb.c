@@ -332,15 +332,10 @@ void init_gNB_Tpool(int inst)
   gNB->num_pusch_symbols_per_thread = 1;
   // ULSCH decoding threadpool
   initTpool(get_softmodem_params()->threadPoolConfig, &gNB->threadPool, cpumeas(CPUMEAS_GETSTATE));
-  // ULSCH decoder result FIFO
-  initNotifiedFIFO(&gNB->respPuschSymb);
-  initNotifiedFIFO(&gNB->respDecode);
 
   // L1 RX result FIFO
   initNotifiedFIFO(&gNB->resp_L1);
-  // L1 TX result FIFO 
-  initNotifiedFIFO(&gNB->L1_tx_free);
-  initNotifiedFIFO(&gNB->L1_tx_filled);
+  // L1 TX result FIFO
   initNotifiedFIFO(&gNB->L1_tx_out);
   initNotifiedFIFO(&gNB->L1_rx_out);
 
@@ -369,10 +364,6 @@ void term_gNB_Tpool(int inst) {
   pthread_join(gNB->L1_tx_thread, NULL);
 
   abortTpool(&gNB->threadPool);
-  abortNotifiedFIFO(&gNB->respPuschSymb);
-  abortNotifiedFIFO(&gNB->respDecode);
-  abortNotifiedFIFO(&gNB->L1_tx_free);
-  abortNotifiedFIFO(&gNB->L1_tx_filled);
   abortNotifiedFIFO(&gNB->L1_rx_out);
 
   gNB_L1_proc_t *proc = &gNB->proc;

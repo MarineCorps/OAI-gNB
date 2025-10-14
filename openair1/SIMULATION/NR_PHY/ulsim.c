@@ -727,14 +727,7 @@ int main(int argc, char *argv[])
   else
     initNamedTpool(gNBthreads, &gNB->threadPool, true, "gNB-tpool");
 
-  initNotifiedFIFO(&gNB->respDecode);
-
-  initNotifiedFIFO(&gNB->respPuschSymb);
-  initNotifiedFIFO(&gNB->L1_tx_free);
-  initNotifiedFIFO(&gNB->L1_tx_filled);
-  initNotifiedFIFO(&gNB->L1_tx_out);
-  notifiedFIFO_elt_t *msgL1Tx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_free, NULL);
-  processingData_L1tx_t *msgDataTx = (processingData_L1tx_t *)NotifiedFifoData(msgL1Tx);
+  processingData_L1tx_t *msgDataTx = malloc(sizeof(processingData_L1tx_t));
   msgDataTx->slot = -1;
   gNB->msgDataTx = msgDataTx;
   //gNB_config = &gNB->gNB_config;
@@ -1299,7 +1292,6 @@ int main(int argc, char *argv[])
         UE_proc.gNB_id = 0;
 
         // prepare ULSCH/PUSCH reception
-        pushNotifiedFIFO(&gNB->L1_tx_free, msgL1Tx); // to unblock the process in the beginning
         nr_schedule_response(Sched_INFO);
 
         // --------- setting parameters for UE --------
