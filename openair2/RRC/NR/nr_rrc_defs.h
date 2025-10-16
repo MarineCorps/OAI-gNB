@@ -188,7 +188,6 @@ typedef struct gNB_RRC_UE_s {
 
   /* KgNB as derived from KASME received from EPC */
   uint8_t kgnb[32];
-  int8_t  kgnb_ncc;
   uint8_t nh[32];
   int8_t  nh_ncc;
 
