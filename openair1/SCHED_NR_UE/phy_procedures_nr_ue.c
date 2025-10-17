@@ -440,7 +440,6 @@ static void nr_ue_measurement_procedures(uint16_t l,
     if(nr_slot_rx == 0)
       T(T_UE_PHY_MEAS,
         T_INT(gNB_id),
-        T_INT(ue->Mod_id),
         T_INT(proc->frame_rx % 1024),
         T_INT(nr_slot_rx),
         T_INT((int)(10 * log10(ue->measurements.rsrp[0]) - ue->rx_total_gain_dB)),
@@ -448,7 +447,8 @@ static void nr_ue_measurement_procedures(uint16_t l,
         T_INT((int)(ue->measurements.rx_power_avg_dB[0] - ue->measurements.n0_power_avg_dB)),
         T_INT((int)ue->measurements.rx_power_avg_dB[0]),
         T_INT((int)ue->measurements.n0_power_avg_dB),
-        T_INT((int)ue->measurements.wideband_cqi_avg[0]));
+        T_INT((int)ue->measurements.wideband_cqi_avg[0]),
+        T_INT((int)ue->common_vars.freq_offset));
 #endif
   }
 

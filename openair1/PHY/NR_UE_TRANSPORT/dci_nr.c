@@ -372,7 +372,14 @@ void nr_rx_pdcch(PHY_VARS_NR_UE *ue,
     LOG_D(NR_PHY_DCI, "slot %d: pdcch log2_maxh = %d (%d,%d)\n", proc->nr_slot_rx, log2_maxh, avgP[0], avgs);
 #endif
 #if T_TRACER
-    T(T_UE_PHY_PDCCH_ENERGY, T_INT(0), T_INT(0), T_INT(proc->frame_rx % 1024), T_INT(proc->nr_slot_rx), T_INT(avgs));
+    T(T_UE_PHY_PDCCH_ENERGY,
+      T_INT(0),
+      T_INT(proc->frame_rx % 1024),
+      T_INT(proc->nr_slot_rx),
+      T_INT(avg[0]),
+      T_INT(antRx > 1 ? avg[1] : 0),
+      T_INT(antRx > 2 ? avg[2] : 0),
+      T_INT(antRx > 3 ? avg[3] : 0));
 #endif
     LOG_D(NR_PHY_DCI, "we enter nr_pdcch_channel_compensation(log2_maxh=%d)\n", log2_maxh);
     LOG_D(NR_PHY_DCI, "in nr_pdcch_channel_compensation(rxdataF_ext x dl_ch_estimates_ext -> rxdataF_comp)\n");
