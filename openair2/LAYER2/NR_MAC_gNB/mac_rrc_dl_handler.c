@@ -967,6 +967,8 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
     ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
     UE->CellGroup = oldUE->CellGroup;
     oldUE->CellGroup = NULL;
+    UE->capability = oldUE->capability;
+    oldUE->capability = NULL;
     UE->mac_stats = oldUE->mac_stats;
     UE->measgap_config = oldUE->measgap_config;
     /* 38.331 5.3.7.2 says that the UE releases the spCellConfig, so we drop it
