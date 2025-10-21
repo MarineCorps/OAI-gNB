@@ -257,7 +257,7 @@ configuration](../RRC/rrc-usage.md) as well for SIB configuration.
 * `do_CSIRS` (default 0): flag whether to use channel-state information
   reference signal (CSI-RS)
 * `do_SRS` (default 0): flag whether to use sounding reference signal (SRS)
-* `do_SINR` (default 0): flag whether to enable CSI reporting of SSB-SINR (introduced in rel16)
+* `CSI_report_type` (default `ssb_rsrp`): parameter to enable different CSI reporting (options: `ssb_rsrp`, `ssb_sinr` and `cri_rsrp`)
   Default setting of CSI reporting quantity is SSB-RSRP.
 * `min_rxtxtime` (default 2): minimum feedback time for UE to respond to
   transmissions (k1 and k2 in 3GPP spec)
@@ -281,14 +281,17 @@ configuration](../RRC/rrc-usage.md) as well for SIB configuration.
 - `du_sibs` (default `[]`): list of SIBs to transmit in the cell. Currently,
   SIB19 (for NTN) is supported.
 
-| DL MIMO                      |`do_CSIRS`|`do_SINR`| CSI report Quantity                               |
-| ---------------------------- | -------- | ------- | --------------------------------------------------|
-| OFF (pdsch_AntennaPorts = 1) |   0      |  0      | SSB-RSRP                                          |
-| OFF (pdsch_AntennaPorts = 1) |   0      |  1      | SSB-SINR                                          |
-| OFF (pdsch_AntennaPorts = 1) |   1      |  0      | CSI-Reference signal  RSRP                        |
-| OFF (pdsch_AntennaPorts = 1) |   1      |  1      | CSI-Reference signal  SINR (not supported yet)    |
-| ON (pdsch_AntennaPorts > 1)  |   1      |  0      | cri-RI-PMI-CQI                                    |
+| DL MIMO                        |`do_CSIRS`|`CSI_report_type`| CSI report Quantity                               |
+| ------------------------------ | -------- | --------------- | --------------------------------------------------|
+| any                            |   any    |  `ssb_rsrp`     | SSB-RSRP                                          |
+| any                            |   0      |  `cri_rsrp`     | SSB-RSRP (no CSI-RS configured)                   |
+| any                            |   1      |  `cri_rsrp`     | CRI-RSRP                                          |
+| any                            |   any    |  `ssb_sinr`     | SSB-SINR                                          |
+| ON (`pdsch_AntennaPorts` > 1)  |   1      |  any            | cri-RI-PMI-CQI                                    |
 
+
+Note that activating `cri-RI-PMI-CQI` will result in that report to be produced
+in addition to either `SSB-SINR`, `SSB-RSRP` or `CRI-RSRP`.
 DL-MIMO is configured using following parameters:
 `pdsch_AntennaPorts_XP` , `pdsch_AntennaPorts_N1` , `pdsch_AntennaPorts_N2`, `maxMIMO_layers`
 (see also [`RUNMODEM.md`](../RUNMODEM.md))
