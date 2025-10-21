@@ -185,9 +185,6 @@ void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
   int txdataF_offset = slot_tx * fp->samples_per_slot_wCP;
   start_meas(&ru->precoding_stats);
 
-  if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
-    return;
-
   if (gNB->common_vars.analog_bf) {
     for (int i = 0; i < ru->num_beams_period; i++) {
       memcpy((void*) &ru->common.beam_id[i][slot_tx * fp->symbols_per_slot],
@@ -195,6 +192,9 @@ void nr_feptx_prec(RU_t *ru, int frame_tx, int slot_tx)
              (fp->symbols_per_slot) * sizeof(int));
     }
   }
+
+  if (nr_slot_select(cfg,frame_tx,slot_tx) == NR_UPLINK_SLOT)
+    return;
 
   // If there is no digital beamforming we just need to copy the data to RU
   if (ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf) {

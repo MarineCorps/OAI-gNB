@@ -259,7 +259,14 @@ static bool is_tdd_ul_symbol(const struct xran_frame_config *frame_conf, int slo
  * slot is not UL). */
 static bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot)
 {
-  return !is_tdd_ul_symbol(frame_conf, slot, XRAN_NUM_OF_SYMBOL_PER_SLOT - 1);
+  return !is_tdd_ul_symbol(frame_conf, slot, 0);
+}
+
+/** @brief Check if current slot is UL or guard/mixed without UL (i.e., current
+ * slot is not UL). */
+static bool is_tdd_ul_guard_slot(const struct xran_frame_config *frame_conf, int slot)
+{
+  return is_tdd_ul_symbol(frame_conf, slot, XRAN_NUM_OF_SYMBOL_PER_SLOT - 1);
 }
 
 /** @details Read PRACH and PUSCH data from xran buffers.  If
@@ -337,7 +344,7 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
       start_ptr = rx_data + (slot_size * slot_offset_rxdata);
       const struct xran_frame_config *frame_conf = &get_xran_fh_config(ant_id / nb_rx_per_ru)->frame_conf;
       // skip processing this slot is TX (no RX in this slot)
-      if (is_tdd_dl_guard_slot(frame_conf, *slot))
+      if (!is_tdd_ul_guard_slot(frame_conf, *slot))
         continue;
       // This loop would better be more inner to avoid confusion and maybe also errors.
       for (int32_t sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
@@ -484,12 +491,70 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
   int nPRBs = fh_cfg->nDLRBs;
   int fftsize = 1 << fh_cfg->ru_conf.fftSize;
   int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
+  int nb_rx_per_ru = ru->nb_rx / fh_init->xran_ports;
+
+  // Handle CP UL packet here instead of at xran_fh_rx_read_slot() as oran_fh_if4p5_south_in() lags behind
+  // oran_fh_if4p5_south_out() (which is invoked at the right time slot) by 4 slots.
+  // Need to use --continuous-tx so that this routine will be triggered in RX slot.
+  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
+    for (uint8_t ant_id = 0; ant_id < ru->nb_rx; ant_id++) {
+      int first = 1; // The first UL symbol
+      const struct xran_frame_config *frame_conf = &get_xran_fh_config(ant_id / nb_rx_per_ru)->frame_conf;
+      // skip processing this slot is TX (no RX in this slot)
+      if (!is_tdd_ul_guard_slot(frame_conf, slot)) {
+        continue;
+      }
+      // This loop would better be more inner to avoid confusion and maybe also errors.
+      for (int32_t sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
+        /* the callback is for mixed and UL slots. In mixed, we have to
+         * skip DL and guard symbols. */
+        if (!is_tdd_ul_symbol(frame_conf, slot, sym_idx)) {
+          continue;
+        }
+        oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_rx_per_ru);
+        uint8_t *pPrbMapData = bufs->dstcp[ant_id % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+        struct xran_prb_map *pPrbMap = (struct xran_prb_map *)pPrbMapData;
+
+        struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
+
+        struct xran_prb_map *pRbMap = pPrbMap;
+        uint32_t idxElm = 0;
+
+        LOG_D(HW, "pRbMap->nPrbElm %d\n", pRbMap->nPrbElm);
+        for (idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
+          LOG_D(HW, "prbMap[%d] : PRBstart %d nPRBs %d\n", idxElm, pRbMap->prbMap[idxElm].nRBStart, pRbMap->prbMap[idxElm].nRBSize);
+          pRbElm = &pRbMap->prbMap[idxElm];
+          if (first) {
+            // ant_id / no of antenna per beam gives the beam_nb
+            pRbElm->nBeamIndex =
+                ru->beam_id[ant_id / (ru->nb_rx / ru->num_beams_period)][slot * XRAN_NUM_OF_SYMBOL_PER_SLOT + sym_idx];
+            // In phy-f-1.0/fhi_lib/lib/api/xran_pkt_cp.h, beamId:15 is of 15bit. -1 set extension bit ef:1 to 1 mistakenly.
+            if (pRbElm->nBeamIndex == -1) {
+              pRbElm->nBeamIndex = 0;
+            } else {
+              first = 0;
+            }
+          }
+        }
+      }
+    }
+  }
 
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (uint8_t ant_id = 0; ant_id < ru->nb_tx; ant_id++) {
       oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_tx_per_ru);
+      const struct xran_frame_config *frame_conf = &get_xran_fh_config(ant_id / nb_tx_per_ru)->frame_conf;
+      // skip processing this slot is TX (no TX in this slot)
+      if (!is_tdd_dl_guard_slot(frame_conf, slot)) {
+        continue;
+      }
       // This loop would better be more inner to avoid confusion and maybe also errors.
       for (int32_t sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
+        /* the callback is for mixed and UL slots. In mixed, we have to
+         * skip UL and guard symbols. */
+        if (is_tdd_ul_symbol(frame_conf, slot, sym_idx)) {
+          continue;
+        }
         uint8_t *pData =
             bufs->src[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers[sym_idx % XRAN_NUM_OF_SYMBOL_PER_SLOT].pData;
         uint8_t *pPrbMapData = bufs->srccp[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
@@ -512,6 +577,14 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
           for (idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
             struct xran_section_desc *p_sec_desc = NULL;
             p_prbMapElm = &pRbMap->prbMap[idxElm];
+            if (sym_idx == 0) {
+              // ant_id / no of antenna per beam gives the beam_nb
+              p_prbMapElm->nBeamIndex = ru->beam_id[ant_id / (ru->nb_tx / ru->num_beams_period)][slot * XRAN_NUM_OF_SYMBOL_PER_SLOT];
+              // In phy-f-1.0/fhi_lib/lib/api/xran_pkt_cp.h, beamId:15 is of 15bit. -1 set extension bit ef:1 to 1 mistakenly.
+              if (p_prbMapElm->nBeamIndex == -1)
+                p_prbMapElm->nBeamIndex = 0;
+            }
+
             // assumes one fragment per symbol
 #ifdef E_RELEASE
             p_sec_desc = p_prbMapElm->p_sec_desc[sym_id][0];

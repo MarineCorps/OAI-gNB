@@ -175,8 +175,10 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 
   if (cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
     common_vars->beam_id = (int **)malloc16(common_vars->num_beams_period * sizeof(int*));
-    for (int i = 0; i < common_vars->num_beams_period; i++)
-      common_vars->beam_id[i] = (int*)malloc16_clear(fp->symbols_per_slot * fp->slots_per_frame * sizeof(int));
+    for (int i = 0; i < common_vars->num_beams_period; i++) {
+      common_vars->beam_id[i] = (int*)malloc16(fp->symbols_per_slot * fp->slots_per_frame * sizeof(int));
+      memset(common_vars->beam_id[i], -1, fp->symbols_per_slot * fp->slots_per_frame * sizeof(int));
+    }
   }
   common_vars->txdataF = (c16_t ***)malloc16(common_vars->num_beams_period * sizeof(c16_t**));
   for (int i = 0; i < common_vars->num_beams_period; i++) {
