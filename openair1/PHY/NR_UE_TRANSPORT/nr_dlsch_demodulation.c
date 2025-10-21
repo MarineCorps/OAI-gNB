@@ -540,6 +540,16 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       }
       *log2_maxh = (log2_approx(avgs) / 2) + 1;
       LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
+#if T_TRACER
+      T(T_UE_PHY_PDSCH_ENERGY,
+        T_INT(gNB_id),
+        T_INT(frame % 1024),
+        T_INT(nr_slot_rx),
+        T_INT(avg[0]), // layer 0, antenna 0
+        T_INT(n_rx > 1 ? avg[1] : 0), // layer 0, antenna 1
+        T_INT(nl > 1 ? avg[n_rx] : 0), // layer 1, antenna 0
+        T_INT(nl > 1 && n_rx > 1 ? avg[n_rx + 1] : 0)); // layer 1, antenna 1
+#endif
     }
     stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_LEVEL_STATS);
     if (meas_enabled) {
@@ -552,9 +562,6 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
             first_symbol_flag,
             ue->phy_cpu_stats.cpu_time_stats[DLSCH_CHANNEL_LEVEL_STATS].p_time / (cpuf * 1000.0));
     }
-#if T_TRACER
-    T(T_UE_PHY_PDSCH_ENERGY, T_INT(gNB_id), T_INT(0), T_INT(frame % 1024), T_INT(nr_slot_rx));
-#endif
 
     //----------------------------------------------------------
     //--------------------- channel compensation ---------------
@@ -746,13 +753,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 #if T_TRACER
   T(T_UE_PHY_PDSCH_IQ,
     T_INT(gNB_id),
-    T_INT(ue->Mod_id),
     T_INT(frame % 1024),
     T_INT(nr_slot_rx),
     T_INT(nb_rb_pdsch),
     T_INT(fp->N_RB_UL),
     T_INT(fp->symbols_per_slot),
-    T_BUFFER(&rxdataF_comp[gNB_id][0], 2 * /* ulsch[UE_id]->harq_processes[harq_pid]->nb_rb */ fp->N_RB_UL * 12 * 2));
+    T_BUFFER(&rxdataF_comp[gNB_id][0], 2 * fp->N_RB_UL * 12 * fp->symbols_per_slot * 2));
 #endif
 
   if (ue->phy_sim_pdsch_rxdataF_comp)
