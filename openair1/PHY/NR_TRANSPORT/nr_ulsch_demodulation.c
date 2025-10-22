@@ -1188,12 +1188,7 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
                                     pusch_ch_est_dmrs_pos_slot_mem);
         nvar += nvar_tmp;
       }
-      // measure the SNR from the channel estimation
-      nr_gnb_measurements(gNB, 
-                          &gNB->ulsch[ulsch_id],
-                          pusch_vars,
-                          symbol,
-                          rel15_ul->nrOfLayers);
+
       allocCast2D(n0_subband_power,
                   unsigned int,
                   gNB->measurements.n0_subband_power,

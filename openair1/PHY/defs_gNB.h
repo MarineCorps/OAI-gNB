@@ -216,13 +216,6 @@ static inline int crcType(int nbSeg, int len)
 }
 
 typedef struct {
-  //! estimated rssi (dBm)
-  int rx_rssi_dBm;
-  /// Wideband CQI (sum of all RX antennas, in dB)
-  char wideband_cqi_tot;
-} ulsch_measurements_gNB;
-
-typedef struct {
   uint32_t frame;
   uint32_t slot;
   // identifier for concurrent beams
@@ -243,7 +236,6 @@ typedef struct {
   /// Flag to indicate that the UL configuration has been handled. Used to remove a stale ULSCH when frame wraps around
   uint8_t handled;
   delay_t delay;
-  ulsch_measurements_gNB ulsch_measurements;
 } NR_gNB_ULSCH_t;
 
 typedef struct {
