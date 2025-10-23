@@ -190,7 +190,7 @@ static void rx_func(processingData_L1_t *info)
     //WA: comment rotation in tx/rx
     if (gNB->phase_comp) {
       //apply the rx signal rotation here
-      int soffset = (slot_rx & 3) * gNB->frame_parms.symbols_per_slot * gNB->frame_parms.ofdm_symbol_size;
+      int soffset = (slot_rx % RU_RX_SLOT_DEPTH) * gNB->frame_parms.symbols_per_slot * gNB->frame_parms.ofdm_symbol_size;
       for (int bb = 0; bb < gNB->common_vars.num_beams_period; bb++) {
         for (int aa = 0; aa < gNB->frame_parms.nb_antennas_rx; aa++) {
           apply_nr_rotation_RX(&gNB->frame_parms,
