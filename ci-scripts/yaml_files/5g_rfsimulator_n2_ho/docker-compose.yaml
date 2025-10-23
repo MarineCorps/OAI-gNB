@@ -150,7 +150,6 @@ services:
                                     --telnetsrv --telnetsrv.listenaddr 192.168.71.171
                                     --telnetsrv.shrmod ci
                                     --rfsimulator.serveraddr 192.168.71.190
-                                    --gNBs.[0].servingCellConfigCommon.[0].ra_ResponseWindow 5
             ASAN_OPTIONS: detect_leaks=0:detect_odr_violation=0
         depends_on:
             - oai-cucp-0
