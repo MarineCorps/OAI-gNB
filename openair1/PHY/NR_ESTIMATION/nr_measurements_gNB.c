@@ -136,7 +136,7 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
 
   // TODO modify the measurements to take into account concurrent beams
   for (int s = first_symb; s < first_symb + num_symb; s++) {
-    int offset0 = ((slot&3)*frame_parms->symbols_per_slot + s) * frame_parms->ofdm_symbol_size;
+    int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + s) * frame_parms->ofdm_symbol_size;
     for (int rb = 0; rb < frame_parms->N_RB_UL; rb++) {
       if ((rb_mask_ul[s][rb >> 5] & (1U << (rb & 31))) == 0 && // check that rb was not used in this subframe
           !(I0_SKIP_DC && rb == frame_parms->N_RB_UL >> 1)) { // skip middle PRB because of artificial noise possibly created by FFT
