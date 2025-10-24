@@ -140,7 +140,9 @@ static void set_UE_security_key(gNB_RRC_UE_t *UE, uint8_t *security_key_pP)
   /* Saves the security key */
   memcpy(UE->kgnb, security_key_pP, SECURITY_KEY_LENGTH);
   memset(UE->nh, 0, SECURITY_KEY_LENGTH);
-  UE->nh_ncc = -1;
+  /* 3GPP TS 33.501 §6.9.2.1.1: On Initial Context Setup, AMF does not send NH;
+   * gNB shall initialize NCC to 0. */
+  UE->nh_ncc = 0;
 
   char ascii_buffer[65];
   for (i = 0; i < 32; i++) {
