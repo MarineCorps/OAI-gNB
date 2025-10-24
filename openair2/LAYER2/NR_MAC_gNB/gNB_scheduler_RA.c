@@ -2115,10 +2115,9 @@ static void nr_fill_rar(uint8_t Mod_idP, NR_UE_info_t *UE, uint8_t *dlsch_buffer
  * The corresponding function to add is add_new_UE_RA(). */
 void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti)
 {
+  NR_SCHED_ENSURE_LOCKED(&mac->sched_lock);
   NR_UEs_t *UE_info = &mac->UE_info;
-  NR_SCHED_LOCK(&UE_info->mutex);
   NR_UE_info_t *UE = remove_UE_from_list(NR_NB_RA_PROC_MAX, UE_info->access_ue_list, rnti);
-  NR_SCHED_UNLOCK(&UE_info->mutex);
   if (UE) {
     delete_nr_ue_data(UE, mac->common_channels, &UE_info->uid_allocator);
   } else {

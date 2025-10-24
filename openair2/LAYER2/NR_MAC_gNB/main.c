@@ -127,7 +127,6 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
    * scheduler to be locked*/
   NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
 
-  NR_SCHED_LOCK(&gNB->UE_info.mutex);
   UE_iterator(gNB->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_mac_stats_t *stats = &UE->mac_stats;
@@ -237,7 +236,6 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
                          stats->ul.lc_bytes[c->lcid]);
     }
   }
-  NR_SCHED_UNLOCK(&gNB->UE_info.mutex);
   return output - begin;
 }
 
@@ -304,7 +302,6 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
 
-      pthread_mutex_init(&RC.nrmac[i]->UE_info.mutex, NULL);
       uid_linear_allocator_init(&RC.nrmac[i]->UE_info.uid_allocator);
 
       if (get_softmodem_params()->phy_test) {

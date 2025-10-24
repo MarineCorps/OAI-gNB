@@ -3033,18 +3033,17 @@ bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
  * To remove the UE, use mac_remove_nr_ue(). */
 bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
 {
+  NR_SCHED_ENSURE_LOCKED(&nr_mac->sched_lock);
+
   LOG_I(NR_MAC, "Adding new UE context with RNTI 0x%04x\n", UE->rnti);
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   dump_nr_list(UE_info->connected_ue_list);
   AssertFatal(!UE->ra, "UE in connected cannot have RA process\n");
 
-  NR_SCHED_LOCK(&UE_info->mutex);
-
   bool success = add_UE_to_list(MAX_MOBILES_PER_GNB, UE_info->connected_ue_list, UE);
   if (!success) {
     LOG_E(NR_MAC,"Try to add UE %04x but the list is full\n", UE->rnti);
     delete_nr_ue_data(UE, NULL, &UE_info->uid_allocator);
-    NR_SCHED_UNLOCK(&UE_info->mutex);
     return false;
   }
 
@@ -3057,7 +3056,6 @@ bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   init_bler_stats(&nr_mac->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
   init_bler_stats(&nr_mac->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
-  NR_SCHED_UNLOCK(&UE_info->mutex);
   dump_nr_list(UE_info->connected_ue_list);
   return true;
 }
@@ -3110,9 +3108,7 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
   /* already mutex protected */
   NR_SCHED_ENSURE_LOCKED(&nr_mac->sched_lock);
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  NR_SCHED_LOCK(&UE_info->mutex);
   NR_UE_info_t *UE = remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, UE_info->connected_ue_list, rnti);
-  NR_SCHED_UNLOCK(&UE_info->mutex);
   if (UE)
     delete_nr_ue_data(UE, nr_mac->common_channels, &UE_info->uid_allocator);
   else
