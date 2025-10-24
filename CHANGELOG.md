@@ -1,5 +1,51 @@
 # RELEASE NOTES: #
 
+## [v2.3.0](https://gitlab.eurecom.fr/oai/openairinterface5g/-/tags/v2.3.0) -> July 2025. ##
+
+General new features and improvements (both RAN and UE):
+- Preliminary support for RedCap UEs
+- Support for NTN LEO scenarios including SIB19 and channel emulation (see
+  doc/RUNMODEM.md)
+- VRTSIM: new shared memory realtime radio (see develop/radio/vrtsim/README.md)
+- Support for TDD pattern 2
+- Support for long PRACH
+- Support for SIB2
+- Add unit tests using ctest (see doc/UnitTests.md)
+
+Stability and bug fixes:
+- Improve various procedures (e.g., RRC reestablishment, RRC Reject, ...)
+- Add improvements for ImScope
+- Bugfixes in the entire stack (e.g., #803, #805, #810, #812, #818, #852, #878,
+  #884, #890, #895, #901, #907, #932, #939 ...)
+- Documentation updates
+- And many other small fixes, like memory leaks, crashes, ...
+
+RAN changes (gNB/CU/CU-CP/CU-UP/DU/DU-high/DU-low):
+- Stability and performance improvements when running with 4-layer DL MIMO
+- Stability and performance improvements when running with 2-layer UL MIMO
+- Interoperability testing with Metanoia Jura and Foxconn RUs
+- Support of O-RAN 7.2 M-plane (Start-up procedure including configuration
+  management, see also doc/ORAN_FHI7.2_Tutorial.md)
+- Upgrade OSC FHI (xran) from E to F release
+- Refactoring of LDPC interface and performance improvements
+- Support for nFAPI in all scenarios for FR1 (see doc/nfapi.md)
+- Support at least 32 UEs concurrently
+- Improve robustness when running in split modes (F1, E1)
+- Add basic support for beam management in FR2
+- Add support for O1 on DU (see also https://gitlab.eurecom.fr/oai/o1-adapter)
+- E2 agent: Support for multiple E2SM-RC report service styles
+
+nrUE changes:
+- Refactoring of threading towards better code and performance
+- Add or rework various procedures (e.g., RA with C-RNTI, Going to Idle, RA, ...)
+- Refactor and extend NAS implementation (e.g., Service Request, Registration
+  Request, Service Acept, Service Reject, ...)
+- Support for continuous frequency offset compensation
+- Reduce minimum RX-to-TX time to 3
+
+Regression:
+- Multiple BWPs do not work reliably on gNB; use tag 2025.w17
+
 ## [v2.2.0](https://gitlab.eurecom.fr/oai/openairinterface5g/-/tags/v2.2.0) -> November 2024. ##
 
 General 5G improvements (both gNB and UE):
