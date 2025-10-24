@@ -179,6 +179,12 @@ typedef struct {
   int location_and_bw;
 } nr_bwp_config_t;
 
+typedef enum {
+  SSB_RSRP,
+  CRI_RSRP,
+  SSB_SINR,
+} nr_config_report_type_t;
+
 typedef struct nr_mac_config_t {
   int sib1_tda;
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
@@ -207,7 +213,7 @@ typedef struct nr_mac_config_t {
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
   nr_redcap_config_t *redcap;
   nr_ptrs_config_t *ptrs;
-  bool do_SINR;
+  nr_config_report_type_t report_type;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {

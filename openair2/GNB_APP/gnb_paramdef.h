@@ -137,7 +137,7 @@ typedef enum {
 #define GNB_CONFIG_STRING_UESS_AGG_LEVEL_LIST           "uess_agg_levels"
 #define GNB_CONFIG_STRING_CU_SIB_LIST                   "cu_sibs"
 #define GNB_CONFIG_STRING_DU_SIB_LIST                   "du_sibs"
-#define GNB_CONFIG_STRING_DOSINR                        "do_SINR"
+#define GNB_CONFIG_STRING_CONFIG_REP                    "CSI_report_type"
 #define GNB_CONFIG_STRING_1ST_ACTIVE_BWP                "first_active_bwp"
 #define GNB_CONFIG_STRING_LIMIT_RSRP_REPORT             "max_num_RSRP_reported"
 
@@ -153,7 +153,7 @@ typedef enum {
 #define GNB_CONFIG_HLP_UESS_AGG_LEVEL_LIST              "List of aggregation levels with number of candidates per level. Element 0 - aggregation level 1"
 #define GNB_CONFIG_HLP_CU_SIBS                          "List of CU generated SIBs to be transmitted"
 #define GNB_CONFIG_HLP_DU_SIBS                          "List of DU generated SIBs to be transmitted"
-#define GNB_CONFIG_HLP_DOSINR                           "Enable CSI feedback using SINR measurements on SSB"
+#define GNB_CONFIG_HLP_CONFIG_REP                       "Define quantity for CSI report (options: ssb_rsrp, ssb_sinr and cri_rsrp)"
 
 
 /*-----------------------------------------------------------------------------------------------------------------------------------------*/
@@ -201,7 +201,7 @@ typedef enum {
                     GNB_CONFIG_HLP_UESS_AGG_LEVEL_LIST,  0,       .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,  0},  \
 {GNB_CONFIG_STRING_CU_SIB_LIST,                  GNB_CONFIG_HLP_CU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
 {GNB_CONFIG_STRING_DU_SIB_LIST,                  GNB_CONFIG_HLP_DU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
-{GNB_CONFIG_STRING_DOSINR,      GNB_CONFIG_HLP_DOSINR,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 }
@@ -246,7 +246,7 @@ typedef enum {
 #define GNB_UESS_AGG_LEVEL_LIST_IDX     35
 #define GNB_CU_SIBS_IDX                 36
 #define GNB_DU_SIBS_IDX                 37
-#define GNB_DO_SINR_IDX                 38
+#define GNB_CONFIG_REP_IDX              38
 #define GNB_1ST_ACTIVE_BWP_IDX          39
 #define GNB_LIMIT_RSRP_REPORT_IDX       40
 
@@ -293,7 +293,10 @@ typedef enum {
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
-  { .s5 = { NULL } },                                             \
+  { .s3a = { config_checkstr_assign_integer, \
+             {"ssb_rsrp", "ssb_sinr", "cri_rsrp"}, \
+             {SSB_RSRP, SSB_SINR, CRI_RSRP}, \
+             3 } }, \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
 }
