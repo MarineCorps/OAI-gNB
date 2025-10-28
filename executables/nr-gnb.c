@@ -314,13 +314,16 @@ void *nrL1_stats_thread(void *param) {
   reset_meas(&gNB->dlsch_precoding_stats);
   while (!oai_exit) {
     sleep(1);
+    if (ftruncate(fileno(fd), 0) != 0 || fseek(fd, 0, SEEK_SET) != 0) {
+      LOG_E(NR_MAC, "error while writing nrL1_stats.log: %d, %s\n", errno, strerror(errno));
+      break;
+    }
     dump_nr_I0_stats(fd,gNB);
     dump_pdsch_stats(fd,gNB);
     dump_pusch_stats(fd,gNB);
     dump_L1_meas_stats(gNB, ru, output, L1STATSSTRLEN);
     fprintf(fd,"%s\n",output);
     fflush(fd);
-    fseek(fd,0,SEEK_SET);
   }
   fclose(fd);
   return(NULL);
