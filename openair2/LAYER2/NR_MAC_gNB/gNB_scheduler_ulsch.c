@@ -1913,7 +1913,6 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   return true;
 }
 
-static uint32_t ul_pf_tbs[5][29]; // pre-computed, approximate TBS values for PF coefficient
 typedef struct UEsched_s {
   float coef;
   bool sched_inactive;
@@ -2069,8 +2068,8 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
     const int max_mcs_table = (current_BWP->mcs_table == 0 || current_BWP->mcs_table == 2) ? 28 : 27;
     const int max_mcs = min(bo->max_mcs, max_mcs_table); /* no per-user maximum MCS yet */
     int selected_mcs;
+    int nrOfLayers = get_ul_nrOfLayers(sched_ctrl, current_BWP->dci_format);
     if (bo->harq_round_max == 1) {
-      int nrOfLayers = get_ul_nrOfLayers(sched_ctrl, current_BWP->dci_format);
       selected_mcs = get_mcs_from_SINRx10(current_BWP->mcs_table, sched_ctrl->pusch_snrx10, nrOfLayers);
       selected_mcs = min(max_mcs, selected_mcs);
       selected_mcs = max(bo->min_mcs, selected_mcs);
@@ -2082,7 +2081,17 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
 
     /* Create UE_sched for UEs eligibale for new data transmission*/
     /* Calculate coefficient*/
-    const uint32_t tbs = ul_pf_tbs[current_BWP->mcs_table][selected_mcs];
+    const uint8_t Qm = nr_get_Qm_dl(selected_mcs, current_BWP->mcs_table);
+    const uint16_t R = nr_get_code_rate_dl(selected_mcs, current_BWP->mcs_table);
+    const uint32_t tbs = nr_compute_tbs(Qm,
+                                        R,
+                                        1, /* rbSize */
+                                        10, /* hypothetical number of slots */
+                                        0, /* N_PRB_DMRS * N_DMRS_SLOT */
+                                        0 /* N_PRB_oh, 0 for initialBWP */,
+                                        0 /* tb_scaling */,
+                                        nrOfLayers)
+                         >> 3;
     float coeff_ue = (float) tbs / UE->ul_thr_ue;
     bool sched_inactive = B == 0 && do_sched;
     LOG_D(NR_MAC, "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, tbs %d, coeff_ue %f, sched_inactive %d\n",
@@ -2707,32 +2716,6 @@ static void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, post_process_pusch_t *pp
 
 nr_pp_impl_ul nr_init_ulsch_preprocessor(int CC_id)
 {
-  /* during initialization: no mutex needed */
-  /* in the PF algorithm, we have to use the TBsize to compute the coefficient.
-   * This would include the number of DMRS symbols, which in turn depends on
-   * the time domain allocation. In case we are in a mixed slot, we do not want
-   * to recalculate all these values, and therefore we provide a look-up table
-   * which should approximately(!) give us the TBsize. In particular, the
-   * number of symbols, the number of DMRS symbols, and the exact Qm and R, are
-   * not correct*/
-  for (int mcsTableIdx = 0; mcsTableIdx < 5; ++mcsTableIdx) {
-    for (int mcs = 0; mcs < 29; ++mcs) {
-      if (mcs > 27 && (mcsTableIdx == 1 || mcsTableIdx == 3 || mcsTableIdx == 4))
-        continue;
-      const uint8_t Qm = nr_get_Qm_ul(mcs, mcsTableIdx);
-      const uint16_t R = nr_get_code_rate_ul(mcs, mcsTableIdx);
-      /* note: we do not update R/Qm based on low MCS or pi2BPSK */
-      ul_pf_tbs[mcsTableIdx][mcs] = nr_compute_tbs(Qm,
-                                                   R,
-                                                   1, /* rbSize */
-                                                   10, /* hypothetical number of slots */
-                                                   0, /* N_PRB_DMRS * N_DMRS_SLOT */
-                                                   0 /* N_PRB_oh, 0 for initialBWP */,
-                                                   0 /* tb_scaling */,
-                                                   1 /* nrOfLayers */)
-                                    >> 3;
-    }
-  }
   return nr_ulsch_preprocessor;
 }
 
