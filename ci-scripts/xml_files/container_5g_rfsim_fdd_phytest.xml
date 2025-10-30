@@ -97,7 +97,7 @@
 
         <testCase id="030011">
                 <class>Iperf</class>
-                <desc>Iperf (DL/30kbps/UDP)(30 sec)</desc>
+                <desc>Iperf (DL/30kbps/UDP)(20 sec)</desc>
                 <iperf_args>-u -b 0.03M -t 20 -R -c 10.0.1.1</iperf_args>
                 <id>rfsim5g_ue</id>
                 <nodes>localhost</nodes>
@@ -109,7 +109,7 @@
 
         <testCase id="030012">
                 <class>Iperf</class>
-                <desc>Iperf (UL/30kbps/UDP)(30 sec)</desc>
+                <desc>Iperf (UL/30kbps/UDP)(20 sec)</desc>
                 <iperf_args>-u -b 0.03M -t 20 -c 10.0.1.1</iperf_args>
                 <id>rfsim5g_ue</id>
                 <nodes>localhost</nodes>

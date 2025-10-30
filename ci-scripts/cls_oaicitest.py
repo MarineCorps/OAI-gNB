@@ -503,6 +503,11 @@ class OaiCiTest():
 			t = iperf_time * 2.5
 			cmd_ue.run(f'rm {client_filename}', reportNonZero=False, silent=True)
 			if cn.runIperf3Server():
+				# Clean up any existing iperf3 server processes on this port.
+				ret = cmd_svr.run(f"{cn.getCmdPrefix()} pkill -f '.*iperf3.*{port}'", reportNonZero=False)
+				# If pkill succeeds, it means there was a leftover iperf3 server.
+				if ret.returncode == 0:
+					logging.warning(f'Iperf3 server on port {port} detected and terminated')
 				cmd_svr.run(f'{cn.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
 			cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} {iperf_ue} -B {ueIP} -c {svrIP} -p {port} {iperf_opt} {jsonReport} {serverReport} -O 5 >> {client_filename}', timeout=t)
 			dest_filename = archiveArtifact(cmd_ue, ctx, client_filename)
