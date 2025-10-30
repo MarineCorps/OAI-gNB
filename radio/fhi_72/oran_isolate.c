@@ -31,6 +31,7 @@
 #include "common/utils/LOG/log.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
 #include "openair1/PHY/defs_gNB.h"
+#include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "oaioran.h"
 #include "oran-config.h"
 
@@ -212,13 +213,15 @@ int trx_oran_ctlrecv(openair0_device *device, void *msg, ssize_t msg_len)
 
 void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
 {
-  ru_info_t ru_info;
-  ru_info.nb_rx = ru->nb_rx * ru->num_beams_period;
-  ru_info.nb_tx = ru->nb_tx * ru->num_beams_period;
-  ru_info.rxdataF = ru->common.rxdataF;
-  ru_info.beam_id = ru->common.beam_id;
-  ru_info.num_beams_period = ru->num_beams_period;
-  ru_info.prach_buf = ru->prach_rxsigF[0]; // index: [prach_oca][ant_id]
+  prach_item_t *prach_id = find_nr_prach(&ru->gNB_list[0]->prach_list, *frame, *slot, SEARCH_EXIST);
+  ru_info_t ru_info = {
+      .nb_rx = ru->nb_rx * ru->num_beams_period,
+      .nb_tx = ru->nb_tx * ru->num_beams_period,
+      .rxdataF = ru->common.rxdataF,
+      .beam_id = ru->common.beam_id,
+      .num_beams_period = ru->num_beams_period,
+      .prach_buf = prach_id ? prach_id->rxsigF : NULL,
+  };
 
   RU_proc_t *proc = &ru->proc;
   int f, sl;
@@ -269,12 +272,13 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
 void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   start_meas(&ru->tx_fhaul);
-  ru_info_t ru_info;
-  ru_info.nb_rx = ru->nb_rx * ru->num_beams_period;
-  ru_info.nb_tx = ru->nb_tx * ru->num_beams_period;
-  ru_info.txdataF_BF = ru->common.txdataF_BF;
-  ru_info.beam_id = ru->common.beam_id;
-  ru_info.num_beams_period = ru->num_beams_period;
+  ru_info_t ru_info = {
+      .nb_rx = ru->nb_rx * ru->num_beams_period,
+      .nb_tx = ru->nb_tx * ru->num_beams_period,
+      .txdataF_BF = ru->common.txdataF_BF,
+      .beam_id = ru->common.beam_id,
+      .num_beams_period = ru->num_beams_period,
+  };
 
   // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
 

@@ -28,7 +28,8 @@
 #include <stdint.h>
 
 #include "xran_fh_o_du.h"
-
+#include "openair1/PHY/impl_defs_nr.h"
+#include "openair1/PHY/TOOLS/tools_defs.h"
 /*
  * Structure added to bear the information needed from OAI RU
  */
@@ -50,7 +51,7 @@ typedef struct ru_info_s {
   int num_beams_period;
 
   // Needed for Prach
-  int16_t **prach_buf;
+  c16_t (*prach_buf)[NB_ANTENNAS_RX][NR_PRACH_SEQ_LEN_L];
 } ru_info_t;
 
 /** @brief Reads RX data (PRACH/PUSCH) of next slot.

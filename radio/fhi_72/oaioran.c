@@ -184,12 +184,17 @@ static int read_prach_data(ru_info_t *ru, int frame, int slot)
   int nb_rx_per_ru = ru->nb_rx / fh_init->xran_ports;
   /* If it is PRACH slot, copy prach IQ from XRAN PRACH buffer to OAI PRACH buffer */
   if (is_prach_slot) {
+    if (!ru->prach_buf) {
+      LOG_W(HW, "we get rach data from ru, but it is not scheduled %d.%d\n", frame, slot);
+      return -1;
+    }
     for (sym_idx = 0; sym_idx < prach_sym; sym_idx++) {
       for (int aa = 0; aa < ru->nb_rx; aa++) {
         int16_t *dst, *src;
         int idx = 0;
         oran_buf_list_t *bufs = get_xran_buffers(aa / nb_rx_per_ru);
-        dst = ru->prach_buf[aa]; // + (sym_idx*576));
+        // hardcoded to use only first prach occasion
+        dst = (int16_t *)ru->prach_buf[0][aa];
         src = (int16_t *)bufs->prachdstdecomp[aa % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers[sym_idx].pData;
         /* convert Network order to host order */
         if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {

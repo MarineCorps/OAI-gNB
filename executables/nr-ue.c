@@ -1091,7 +1091,7 @@ void *UE_thread(void *arg)
     stream_status = STREAM_STATUS_SYNCED;
     tx_wait_for_dlsch[slot] = 0;
   }
-
+  LOG_W(NR_PHY, "UE main thread is ending\n");
   return NULL;
 }
 

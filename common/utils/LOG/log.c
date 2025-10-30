@@ -145,7 +145,13 @@ static const char *const log_level_highlight_end[] =
     {LOG_RESET, LOG_RESET, LOG_RESET, LOG_RESET, LOG_RESET, LOG_RESET}; /*!< \brief Optional end-format strings for highlighting */
 static void log_output_memory(log_component_t *c, const char *file, const char *func, int line, int comp, int level, const char* format,va_list args);
 
-int write_file_matlab(const char *fname, const char *vname, void *data, int length, int dec, unsigned int format, int multiVec)
+int write_file_matlab(const char *fname,
+                      const char *vname,
+                      const void *data,
+                      int length,
+                      int dec,
+                      unsigned int format,
+                      int multiVec)
 {
   FILE *fp=NULL;
   int i;

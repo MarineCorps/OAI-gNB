@@ -60,7 +60,7 @@ static int16_t ssb_index_from_prach(module_id_t module_idP,
   gNB_MAC_INST *gNB = RC.nrmac[module_idP];
   NR_COMMON_channels_t *cc = &gNB->common_channels[0];
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  nfapi_nr_config_request_scf_t *cfg = &RC.nrmac[module_idP]->config[0];
+  nfapi_nr_config_request_scf_t *cfg = &gNB->config[0];
   NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup;
   uint8_t config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
   uint8_t fdm = cfg->prach_config.num_prach_fd_occasions.value;
@@ -351,10 +351,10 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
     msgacc = initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup;
   int slots_frame = gNB->frame_structure.numb_slots_frame;
   int index = ul_buffer_index(frameP, slotP, slots_frame, gNB->UL_tti_req_ahead_size);
-  nfapi_nr_ul_tti_request_t *UL_tti_req = &RC.nrmac[module_idP]->UL_tti_req_ahead[0][index];
-  nfapi_nr_config_request_scf_t *cfg = &RC.nrmac[module_idP]->config[0];
+  nfapi_nr_ul_tti_request_t *UL_tti_req = &gNB->UL_tti_req_ahead[0][index];
+  nfapi_nr_config_request_scf_t *cfg = &gNB->config[0];
 
-  if (is_ul_slot(slotP, &RC.nrmac[module_idP]->frame_structure)) {
+  if (is_ul_slot(slotP, &gNB->frame_structure)) {
     const NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &rach_ConfigCommon->rach_ConfigGeneric;
     uint8_t config_index = rach_ConfigGeneric->prach_ConfigurationIndex;
     int slot_index = 0;
@@ -390,16 +390,15 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
       uint32_t N_t_slot = cc->prach_info.N_t_slot;
       uint32_t start_symb = cc->prach_info.start_symbol;
       for (int fdm_index = 0; fdm_index < fdm; fdm_index++) { // one structure per frequency domain occasion
-        AssertFatal(UL_tti_req->n_pdus < sizeof(UL_tti_req->pdus_list) / sizeof(UL_tti_req->pdus_list[0]),
-                    "Invalid UL_tti_req->n_pdus %d\n",
-                     UL_tti_req->n_pdus);
-
-        UL_tti_req->pdus_list[UL_tti_req->n_pdus].pdu_type = NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE;
-        UL_tti_req->pdus_list[UL_tti_req->n_pdus].pdu_size = sizeof(nfapi_nr_prach_pdu_t);
-        nfapi_nr_prach_pdu_t  *prach_pdu = &UL_tti_req->pdus_list[UL_tti_req->n_pdus].prach_pdu;
-        memset(prach_pdu, 0, sizeof(nfapi_nr_prach_pdu_t));
+        AssertFatal(UL_tti_req->n_pdus < sizeofArray(UL_tti_req->pdus_list), "Invalid UL_tti_req->n_pdus %d\n", UL_tti_req->n_pdus);
+        nfapi_nr_ul_tti_request_number_of_pdus_t *newpdu = UL_tti_req->pdus_list + UL_tti_req->n_pdus;
+        *newpdu = (nfapi_nr_ul_tti_request_number_of_pdus_t){
+            .pdu_type = NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE,
+            .pdu_size = sizeof(nfapi_nr_prach_pdu_t),
+        };
         UL_tti_req->n_pdus += 1;
         int num_td_occ = 0;
+        nfapi_nr_prach_pdu_t *prach_pdu = &newpdu->prach_pdu;
         for (int td_index = 0; td_index < N_t_slot; td_index++) {
           uint32_t config_period = cc->prach_info.x;
           prach_occasion_id = (((frameP % (cc->max_association_period * config_period))/config_period) * cc->total_prach_occasions_per_config_period) +
@@ -1123,7 +1122,7 @@ static void nr_add_msg3(module_id_t module_idP, int CC_id, frame_t frameP, slot_
   const uint16_t mask = SL_to_bitmap(ra->msg3_startsymb, ra->msg3_nbSymb);
   int slots_frame = mac->frame_structure.numb_slots_frame;
   int buffer_index = ul_buffer_index(ra->Msg3_frame, ra->Msg3_slot, slots_frame, mac->vrb_map_UL_size);
-  uint16_t *vrb_map_UL = &RC.nrmac[module_idP]->common_channels[CC_id].vrb_map_UL[ra->Msg3_beam.idx][buffer_index * MAX_BWP_SIZE];
+  uint16_t *vrb_map_UL = &mac->common_channels[CC_id].vrb_map_UL[ra->Msg3_beam.idx][buffer_index * MAX_BWP_SIZE];
   for (int i = 0; i < ra->msg3_nb_rb; ++i) {
     AssertFatal(!(vrb_map_UL[i + ra->msg3_first_rb + ra->msg3_bwp_start] & mask),
                 "RB %d in %4d.%2d is already taken, cannot allocate Msg3!\n",
@@ -1135,7 +1134,7 @@ static void nr_add_msg3(module_id_t module_idP, int CC_id, frame_t frameP, slot_
 
   LOG_D(NR_MAC, "UE %04x: %d.%d RA is active, Msg3 in (%d,%d)\n", UE->rnti, frameP, slotP, ra->Msg3_frame, ra->Msg3_slot);
   buffer_index = ul_buffer_index(ra->Msg3_frame, ra->Msg3_slot, slots_frame, mac->UL_tti_req_ahead_size);
-  nfapi_nr_ul_tti_request_t *future_ul_tti_req = &RC.nrmac[module_idP]->UL_tti_req_ahead[CC_id][buffer_index];
+  nfapi_nr_ul_tti_request_t *future_ul_tti_req = &mac->UL_tti_req_ahead[CC_id][buffer_index];
   AssertFatal(future_ul_tti_req->SFN == ra->Msg3_frame
               && future_ul_tti_req->Slot == ra->Msg3_slot,
               "future UL_tti_req's frame.slot %d.%d does not match PUSCH %d.%d\n",
@@ -1431,7 +1430,12 @@ static void nr_generate_Msg2(module_id_t module_idP,
       scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.ra_ResponseWindow;
   const int n_slots_frame = nr_mac->frame_structure.numb_slots_frame;
   if (!msg2_in_response_window(ra->preamble_frame, ra->preamble_slot, n_slots_frame, rrc_ra_ResponseWindow, frameP, slotP)) {
-    LOG_E(NR_MAC, "UE RA-RNTI %04x TC-RNTI %04x: exceeded RA window, cannot schedule Msg2\n", ra->RA_rnti, UE->rnti);
+    LOG_E(NR_MAC,
+          "sfn: %d.%d UE RA-RNTI %04x TC-RNTI %04x: exceeded RA window, cannot schedule Msg2\n",
+          frameP,
+          slotP,
+          ra->RA_rnti,
+          UE->rnti);
     nr_release_ra_UE(nr_mac, UE->rnti);
     return;
   }

@@ -688,6 +688,8 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
 
     if (b->conn_sock >= 0) {
       samplesBlockHeader_t header = {nsamps, nbAnt, timestamp};
+      if (!nbAnt)
+        LOG_E(HW, "rfsimulator sending 0 tx antennas\n");
       fullwrite(b->conn_sock, &header, sizeof(header), t);
       if (nbAnt == 1) {
         fullwrite(b->conn_sock, samplesVoid[0], sampleToByte(nsamps, nbAnt), t);
@@ -796,6 +798,8 @@ static void process_recv_header(rfsimulator_state_t *t, buffer_t *b, bool first_
       // We have a transmission hole to fill, like TDD
       // we create no signal samples up to the beginning of this reception
       int nbAnt = b->th.nbAnt;
+      if (!nbAnt)
+        LOG_E(HW, "rfsimulator receive 0 rx antennas\n");
       if (b->th.timestamp - b->lastReceivedTS < CirSize) {
         // case we wrap at circular buffer end
         for (uint64_t index = b->lastReceivedTS; index < b->th.timestamp; index++) {
@@ -822,6 +826,8 @@ static void process_recv_header(rfsimulator_state_t *t, buffer_t *b, bool first_
   b->transferPtr = (char *)&b->circularBuf[(b->lastReceivedTS * b->th.nbAnt) % CirSize];
   // we now need to read the samples
   b->remainToTransfer = sampleToByte(b->th.size, b->th.nbAnt);
+  if (!b->remainToTransfer)
+    b->headerMode = true; // We got a header with 0 antennas, no I/Q to read
   return;
 }
 

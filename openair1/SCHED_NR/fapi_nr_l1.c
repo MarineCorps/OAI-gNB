@@ -127,44 +127,28 @@ void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti
   int slot = UL_tti_req->Slot;
 
   for (int i = 0; i < UL_tti_req->n_pdus; i++) {
-    switch (UL_tti_req->pdus_list[i].pdu_type) {
+    int type = UL_tti_req->pdus_list[i].pdu_type;
+    LOG_D(NR_PHY,
+          "frame %d, slot %d got %s for %d.%d\n",
+          frame,
+          slot,
+          txt_nfapi_nr_ul_config_pdu_type[type],
+          UL_tti_req->SFN,
+          UL_tti_req->Slot);
+    switch (type) {
       case NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE:
-        LOG_D(NR_PHY,
-              "frame %d, slot %d, Got NFAPI_NR_UL_TTI_PUSCH_PDU_TYPE for %d.%d\n",
-              frame,
-              slot,
-              UL_tti_req->SFN,
-              UL_tti_req->Slot);
         nr_fill_ulsch(gNB, UL_tti_req->SFN, UL_tti_req->Slot, &UL_tti_req->pdus_list[i].pusch_pdu);
         break;
       case NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE:
-        LOG_D(NR_PHY,
-              "frame %d, slot %d, Got NFAPI_NR_UL_TTI_PUCCH_PDU_TYPE for %d.%d\n",
-              frame,
-              slot,
-              UL_tti_req->SFN,
-              UL_tti_req->Slot);
         nr_fill_pucch(gNB, UL_tti_req->SFN, UL_tti_req->Slot, &UL_tti_req->pdus_list[i].pucch_pdu);
         break;
-      case NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE:
-        LOG_D(NR_PHY,
-              "frame %d, slot %d, Got NFAPI_NR_UL_TTI_PRACH_PDU_TYPE for %d.%d\n",
-              frame,
-              slot,
-              UL_tti_req->SFN,
-              UL_tti_req->Slot);
+      case NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE: {
         nfapi_nr_prach_pdu_t *prach_pdu = &UL_tti_req->pdus_list[i].prach_pdu;
-        int id = nr_fill_prach(gNB, UL_tti_req->SFN, UL_tti_req->Slot, prach_pdu);
-        if (gNB->RU_list[0]->if_south == LOCAL_RF || gNB->RU_list[0]->if_south == REMOTE_IF5)
-          nr_fill_prach_ru(gNB->RU_list[0], UL_tti_req->SFN, UL_tti_req->Slot, prach_pdu, gNB->prach_vars.list[id].beam_nb);
-        break;
+        prach_item_t *prach = nr_schedule_rx_prach(gNB, UL_tti_req->SFN, UL_tti_req->Slot, prach_pdu);
+        if (!prach)
+          LOG_W(NR_PHY_RACH, "Error in scheduling rach\n");
+      } break;
       case NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE:
-        LOG_D(NR_PHY,
-              "frame %d, slot %d, Got NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE for %d.%d\n",
-              frame,
-              slot,
-              UL_tti_req->SFN,
-              UL_tti_req->Slot);
         nr_fill_srs(gNB, UL_tti_req->SFN, UL_tti_req->Slot, &UL_tti_req->pdus_list[i].srs_pdu);
         break;
     }

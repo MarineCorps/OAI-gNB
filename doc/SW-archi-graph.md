@@ -39,7 +39,7 @@ rx_func_implem[rx_func]
          --> handle_nr_nfapi_xxx_pdu
          --> sendTxFilled((L1_tx_filled))
          --> nr_fill_ul_xxx
-         --> nr_fill_prach
+         --> nr_schedule_rx_prach()
       end
       gNB_dlsch_ulsch_scheduler --> NR_Schedule_response
     end 

@@ -135,28 +135,6 @@ typedef struct {
 } NR_gNB_SSB_t;
 
 typedef struct {
-  int frame;
-  int slot;
-  // identifier for concurrent beams
-  // prach duration in slots
-  int num_slots;
-  int *beam_nb;
-  nfapi_nr_prach_pdu_t pdu;  
-} gNB_PRACH_list_t;
-
-#define NUMBER_OF_NR_PRACH_MAX 8
-
-typedef struct {
-  /// \brief ?.
-  /// second index: rx antenna [0..63] (hard coded) \note Hard coded array size indexed by \c nb_antennas_rx.
-  /// third index: frequency-domain sample [0..ofdm_symbol_size*12[
-  int16_t **rxsigF;
-  /// \brief local buffer to compute prach_ifft
-  int32_t *prach_ifft;
-  gNB_PRACH_list_t list[NUMBER_OF_NR_PRACH_MAX];
-} NR_gNB_PRACH;
-
-typedef struct {
   uint8_t NumPRSResources;
   prs_config_t prs_cfg[NR_MAX_PRS_RESOURCES_PER_SET];
 } NR_gNB_PRS;
@@ -430,7 +408,7 @@ typedef struct PHY_VARS_gNB_s {
   int max_nb_pusch;
 
   NR_gNB_COMMON common_vars;
-  NR_gNB_PRACH prach_vars;
+  prach_list_t prach_list;
   NR_gNB_PRS prs_vars;
   NR_gNB_PUSCH *pusch_vars;
   NR_gNB_PUCCH_t *pucch;

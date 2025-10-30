@@ -133,6 +133,34 @@ typedef struct {
   int resource_type;
 } nr_srs_info_t;
 
+#define NUMBER_OF_NR_PRACH_MAX 8
+typedef struct {
+  int frame;
+  int slot;
+  int num_slots; // prach duration in slots
+  int beams[NFAPI_MAX_NUM_BG_IF];
+  nfapi_nr_prach_pdu_t pdu;
+  int rootSequenceIndex;
+  int numrootSequenceIndex;
+  int msg1_frequencystart;
+  int mu;
+  int prach_sequence_length;
+  int restricted_set;
+  int numerology_index;
+  int nb_rx;
+  c16_t rxsigF[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NB_ANTENNAS_RX][NR_PRACH_SEQ_LEN_L];
+  c16_t (*Xu)[839];
+  time_stats_t *rx_prach;
+} prach_item_t;
+
+typedef struct {
+  /// prach commands
+  prach_item_t list[NUMBER_OF_NR_PRACH_MAX];
+  /// mutex for prach_list access
+  pthread_mutex_t prach_list_mutex;
+} prach_list_t;
+void init_prach_list(prach_list_t *);
+
 typedef struct NR_DL_FRAME_PARMS NR_DL_FRAME_PARMS;
 
 typedef uint32_t (*get_samples_per_slot_t)(int slot, const NR_DL_FRAME_PARMS *fp);

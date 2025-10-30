@@ -240,6 +240,7 @@ configmodule_interface_t *load_configmodule(int argc,
   for (int i=0; i<argc; i++)
     printf("\"%s\" ", argv[i]);
   printf("\n");
+  fflush(stdout);
 
   /* first parse the command line to look for the -O option */
   for (i = 0; i<argc; i++) {
