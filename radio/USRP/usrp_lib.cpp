@@ -488,38 +488,39 @@ static int trx_usrp_write(openair0_device *device,
             buff_tx[i][j] = simde_mm256_slli_epi16(tmp, 4);
           }
         }
-    }
+      }
 
-    s->tx_md.has_time_spec  = true;
-    s->tx_md.start_of_burst = (s->tx_count==0) ? true : first_packet_state;
-    s->tx_md.end_of_burst   = last_packet_state;
-    s->tx_md.time_spec      = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
-    s->tx_count++;
+      s->tx_md.has_time_spec = true;
+      s->tx_md.start_of_burst = (s->tx_count == 0) ? true : first_packet_state;
+      s->tx_md.end_of_burst = last_packet_state;
+      s->tx_md.time_spec = uhd::time_spec_t::from_ticks(timestamp, s->sample_rate);
+      s->tx_count++;
 
-VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_BEAM_SWITCHING_GPIO,1);
-    // bit 13 enables gpio 
-    if ((flags_gpio & TX_GPIO_CHANGE) != 0) {
-      // push GPIO bits 
-      s->usrp->set_command_time(s->tx_md.time_spec);
-      s->usrp->set_gpio_attr(s->gpio_bank, "OUT", flags_gpio, MAN_MASK);
-      s->usrp->clear_command_time();
-    }
-VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_BEAM_SWITCHING_GPIO,0);
+      VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_BEAM_SWITCHING_GPIO, 1);
+      // bit 13 enables gpio
+      if ((flags_gpio & TX_GPIO_CHANGE) != 0) {
+        // push GPIO bits
+        s->usrp->set_command_time(s->tx_md.time_spec);
+        s->usrp->set_gpio_attr(s->gpio_bank, "OUT", flags_gpio, MAN_MASK);
+        s->usrp->clear_command_time();
+      }
+      VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_BEAM_SWITCHING_GPIO, 0);
 
-    if (cc>1) {
-      std::vector<void *> buff_ptrs;
+      if (cc > 1) {
+        std::vector<void *> buff_ptrs;
 
-      for (int i=0; i<cc; i++)
-        buff_ptrs.push_back(&(((int16_t *)buff_tx[i])[0]));
+        for (int i = 0; i < cc; i++)
+          buff_ptrs.push_back(&(((int16_t *)buff_tx[i])[0]));
 
-      ret = (int)s->tx_stream->send(buff_ptrs, nsamps, s->tx_md);
-    }
-    else {
-      ret = (int)s->tx_stream->send(&(((int16_t *)buff_tx[0])[0]), nsamps, s->tx_md);
-    }
+        ret = (int)s->tx_stream->send(buff_ptrs, nsamps, s->tx_md);
+      } else {
+        ret = (int)s->tx_stream->send(&(((int16_t *)buff_tx[0])[0]), nsamps, s->tx_md);
+      }
 
-    if (ret != nsamps) LOG_E(HW,"[xmit] tx samples %d != %d\n",ret,nsamps);
-    return ret;
+      if (ret != nsamps) {
+        LOG_E(HW, "[xmit] tx samples %d != %d\n", ret, nsamps);
+      }
+      return ret;
     } else {
       pthread_mutex_lock(&write_thread->mutex_write);
 
