@@ -83,8 +83,9 @@
 #define MAX_NUM_SLICES 1024
 
 // RLC Entity
-#define RLC_TX_MAXSIZE       10000000
-#define RLC_RX_MAXSIZE       10000000
+// 고트래픽 상황에서 SDU rejection 방지를 위해 버퍼 크기 증가 (10MB → 30MB)
+#define RLC_TX_MAXSIZE       30000000
+#define RLC_RX_MAXSIZE       30000000
 #define SEND_MRW_ON 240
 #define MAX_ANT 8
 // CBA constant
