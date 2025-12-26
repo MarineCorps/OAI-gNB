@@ -36,6 +36,10 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "openair2/E2AP/flexric/src/agent/e2_agent_api.h"
 #include "openair2/E2AP/RAN_FUNCTION/init_ran_func.h"
 #endif
+#ifdef JBPF_HOOK
+#include "jbpf.h"
+#include "jbpf_io_channel.h"
+#endif
 #include "nr-softmodem.h"
 #include <common/utils/assertions.h>
 #include <openair2/GNB_APP/gnb_app.h>
@@ -510,6 +514,53 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 }
 #endif
 
+#ifdef JBPF_HOOK
+/**
+ * JBPF I/O 출력 콜백 핸들러
+ *
+ * eBPF Codelet이 ringbuf로 전송한 데이터를 수신하는 핸들러 함수
+ * jbpf_register_io_output_cb()로 등록되어 codelet이 jbpf_ringbuf_output() 호출 시 자동 실행
+ *
+ * @param stream_id  출력 스트림 ID (YAML의 out_io_channel.stream_id와 매칭)
+ * @param bufs       데이터 버퍼 배열 (각 버퍼는 codelet이 전송한 구조체 포인터)
+ * @param num_bufs   버퍼 개수
+ * @param ctx        사용자 정의 컨텍스트 (등록 시 전달, 현재 미사용)
+ */
+static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, int num_bufs, void* ctx)
+{
+    if (!stream_id || num_bufs <= 0) {
+        return;
+    }
+
+    /* 디버그: 수신된 데이터 정보 로깅 */
+    LOG_D(GNB_APP, "Received %d buffers from codelet (stream_id: %02x%02x...)\n",
+          num_bufs, stream_id->id[0], stream_id->id[1]);
+
+    /*
+     * 추후 확장 가능 영역:
+     *
+     * 1. Stream ID로 codelet 구분:
+     *    - stream_id: 00112233445566778899AABBCCDDEE01 → sdap_packet_stats
+     *    - stream_id: 00112233445566778899AABBCCDDEE02 → sdap_qfi_classifier
+     *
+     * 2. 구조체 파싱:
+     *    struct packet_stats* stats = (struct packet_stats*)bufs[i];
+     *    LOG_I(JBPF, "UE %u: %lu packets, %lu bytes\n",
+     *          stats->ue_id, stats->rx_packets, stats->rx_bytes);
+     *
+     * 3. 외부 시스템 연동:
+     *    - Prometheus exporter (HTTP 메트릭 엔드포인트)
+     *    - InfluxDB (시계열 DB)
+     *    - Kafka (실시간 스트리밍)
+     *    - FlexRIC E2 Metrics (xApp으로 전송)
+     */
+    for (int i = 0; i < num_bufs; i++) {
+        // 현재는 데이터 수신만 확인 (실제 처리는 요구사항에 따라 추후 구현)
+        // TODO: packet_stats / qfi_stats 구조체 파싱 및 처리 로직 추가
+    }
+}
+#endif // JBPF_HOOK
+
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
 int main( int argc, char **argv ) {
@@ -654,6 +705,86 @@ int main( int argc, char **argv ) {
   }
 
 #endif // E2_AGENT
+
+#ifdef JBPF_HOOK
+  /*
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   * JANUS (jbpf) eBPF 프레임워크 초기화
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   *
+   * JBPF는 userspace eBPF 프레임워크로, gNB의 프로토콜 계층(SDAP/PDCP/RLC)에
+   * Hook을 삽입하여 런타임에 로드 가능한 eBPF Codelet으로 패킷 모니터링/분류 수행
+   *
+   * 주요 기능:
+   * - 런타임 Codelet 로딩 (LCM IPC를 통해 YAML 기반 배포)
+   * - 패킷 통계 수집 (UE별 throughput, latency)
+   * - QFI별 트래픽 분류 (QoS Flow 분석)
+   * - 커스텀 패킷 필터링/수정 (향후 확장 가능)
+   */
+  LOG_I(GNB_APP, "Initializing JANUS (jbpf) framework...\n");
+
+  /* 1. JBPF 설정 구조체 초기화 */
+  struct jbpf_config jbpf_config = {0};
+  jbpf_set_default_config_options(&jbpf_config);
+
+  /*
+   * 2. LCM (Life-Cycle Management) IPC 설정
+   *
+   * Unix Domain Socket을 통해 외부 도구(jbpf_lcm_cli)에서
+   * 런타임에 codeletset을 로드/언로드 가능
+   *
+   * 사용 예시:
+   *   jbpf_lcm_cli load -s /tmp/jbpf_oai_gnb.sock -c oai_gnb_monitoring.yaml
+   */
+  jbpf_config.lcm_ipc_config.has_lcm_ipc_thread = true;
+  snprintf(
+      jbpf_config.lcm_ipc_config.lcm_ipc_name,
+      sizeof(jbpf_config.lcm_ipc_config.lcm_ipc_name) - 1,
+      "%s",
+      "/tmp/jbpf_oai_gnb.sock"
+  );
+
+  /*
+   * 3. I/O 채널 모드 설정
+   *
+   * JBPF_IO_THREAD_CONFIG: Standalone 모드 (콜백 기반)
+   *   - Codelet의 ringbuf 출력 → 콜백 핸들러로 전달
+   *   - 별도 IPC 프로세스 불필요
+   *
+   * 참고: JBPF_IO_IPC_CONFIG는 별도 프로세스와 공유 메모리 통신 시 사용
+   */
+  jbpf_config.io_config.io_type = JBPF_IO_THREAD_CONFIG;
+
+  /* 4. JBPF 라이브러리 초기화 */
+  if (jbpf_init(&jbpf_config) < 0) {
+    LOG_E(GNB_APP, "Failed to initialize JBPF framework\n");
+    return -1;
+  }
+
+  /*
+   * 5. 현재 스레드를 JBPF에 등록
+   *
+   * jbpf는 스레드별로 eBPF VM 컨텍스트를 관리하므로,
+   * hook을 호출하는 모든 스레드는 등록 필요
+   *
+   * 주의: nr-softmodem의 워커 스레드(RU/L1/L2 thread)에서도
+   *       hook 호출 시 해당 스레드에서 jbpf_register_thread() 필요
+   */
+  jbpf_register_thread();
+
+  /*
+   * 6. I/O 출력 콜백 핸들러 등록
+   *
+   * Codelet이 jbpf_ringbuf_output()로 데이터 전송 시
+   * jbpf_io_output_handler() 함수가 자동 호출됨
+   */
+  jbpf_register_io_output_cb(jbpf_io_output_handler);
+
+  LOG_I(GNB_APP, "JANUS (jbpf) framework initialized successfully\n");
+  LOG_I(GNB_APP, "  - LCM IPC socket: /tmp/jbpf_oai_gnb.sock\n");
+  LOG_I(GNB_APP, "  - I/O mode: Local (callback-based)\n");
+  LOG_I(GNB_APP, "Load codelets with: jbpf_lcm_cli load -s /tmp/jbpf_oai_gnb.sock -c <yaml>\n");
+#endif // JBPF_HOOK
 
   // wait for F1 Setup Response before starting L1 for real
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
