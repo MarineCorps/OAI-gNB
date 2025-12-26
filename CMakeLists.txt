@@ -308,6 +308,26 @@ if (E2_AGENT)
   message(STATUS "Selected KPM version: ${KPM_VERSION}")
 endif()
 
+#########################
+##### JBPF Hook: eBPF integration
+#########################
+set(JBPF_HOOK "OFF" CACHE STRING "Enable JANUS (jbpf) eBPF Hook Framework")
+set_property(CACHE JBPF_HOOK PROPERTY STRINGS "ON" "OFF")
+
+if (JBPF_HOOK)
+  # libjbpf 라이브러리 검색
+  find_library(JBPF_LIBRARY NAMES jbpf PATHS /usr/local/lib REQUIRED)
+  find_path(JBPF_INCLUDE_DIR NAMES jbpf.h PATHS /usr/local/include REQUIRED)
+
+  include_directories(${JBPF_INCLUDE_DIR})
+
+  message(STATUS "JBPF Hook Framework enabled")
+  message(STATUS "  - Library: ${JBPF_LIBRARY}")
+  message(STATUS "  - Include: ${JBPF_INCLUDE_DIR}")
+
+  add_definitions(-DJBPF_HOOK)
+endif()
+
 add_boolean_option(ENABLE_IMSCOPE OFF "Enable phy scope based on imgui" OFF)
 add_boolean_option(ENABLE_IMSCOPE_RECORD OFF "Enable recording IQ data for imscope" OFF)
 
@@ -1834,6 +1854,9 @@ endif()
 if(E2_AGENT)
   target_link_libraries(nr-softmodem PUBLIC e2_agent e2_agent_arg e2_ran_func_du_cucp_cuup)
   target_compile_definitions(nr-softmodem PRIVATE ${E2AP_VERSION} ${KPM_VERSION} E2_AGENT)
+endif()
+if(JBPF_HOOK)
+  target_link_libraries(nr-softmodem PUBLIC ${JBPF_LIBRARY} dl pthread)
 endif()
 
 

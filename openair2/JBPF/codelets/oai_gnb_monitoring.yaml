@@ -1,0 +1,28 @@
+# JBPF Codeletset 정의 파일
+# OAI-gNB SDAP Uplink 모니터링용 Codelet 세트
+
+codelet_descriptor:
+  # Codelet 1: 패킷 통계 수집
+  - codelet_name: sdap_packet_stats
+    # 빌드된 .o 파일 경로 (설치 위치)
+    codelet_path: /usr/local/share/oai/jbpf/codelets/sdap_packet_stats.o
+    # 연결할 Hook 이름 (nr_sdap_entity.c에서 정의)
+    hook_name: sdap_uplink
+    # 출력 채널 설정
+    out_io_channel:
+      - name: stats_output  # Codelet 내부의 ringbuf 이름
+        stream_id: '00112233445566778899AABBCCDDEE01'  # 16바이트 스트림 ID
+    # 우선순위 (낮을수록 먼저 실행, 1이 가장 높음)
+    priority: 1
+
+  # Codelet 2: QFI별 트래픽 분류
+  - codelet_name: sdap_qfi_classifier
+    codelet_path: /usr/local/share/oai/jbpf/codelets/sdap_qfi_classifier.o
+    hook_name: sdap_uplink
+    out_io_channel:
+      - name: qfi_output
+        stream_id: '00112233445566778899AABBCCDDEE02'
+    priority: 2
+
+# Codeletset 고유 ID
+codeletset_id: oai_gnb_monitoring

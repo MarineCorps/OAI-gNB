@@ -94,18 +94,18 @@ typedef struct sdap_configuration_s {
 } sdap_config_t;
 
 typedef struct nr_sdap_entity_s {
-  ue_id_t ue_id;
-  int default_drb;
+  ue_id_t ue_id; // 단말기 고유 ID(RNTI)
+  int default_drb; // 매핑 규칙이 없을 때 사용하는 기본 DRB ID
   /// sdap_tun_read_thread needs to know if we are gNB/UE, so for noS1 mode,
   /// store which one we are
-  bool is_gnb;
-  int pdusession_id;
-  int pdusession_sock;
+  bool is_gnb; // gNB/UE 구분 플래그
+  int pdusession_id; // PDU 세션 ID(ex 1: 인터넷, 2: IMS 등)
+  int pdusession_sock; // PDU 세션 소켓 디스크립터
   pthread_t pdusession_thread;
   bool stop_thread;
   int qfi;
 
-  qfi2drb_t qfi2drb_table[SDAP_MAX_QFI];
+  qfi2drb_t qfi2drb_table[SDAP_MAX_QFI]; // QFI -> DRB 매핑 테이블 
 
   void (*qfi2drb_map_update)(struct nr_sdap_entity_s *entity, const sdap_config_t *sdap);
   void (*qfi2drb_map_delete)(struct nr_sdap_entity_s *entity, const uint8_t qfi);
@@ -119,6 +119,8 @@ typedef struct nr_sdap_entity_s {
   int (*sdap_map_ctrl_pdu)(struct nr_sdap_entity_s *entity, int map_type, uint8_t dl_qfi);
   void (*sdap_submit_ctrl_pdu)(ue_id_t ue_id, int sdap_ctrl_pdu_drb, nr_sdap_ul_hdr_t ctrl_pdu);
 
+
+  //
   bool (*tx_entity)(struct nr_sdap_entity_s *entity,
                     protocol_ctxt_t *ctxt_p,
                     const srb_flag_t srb_flag,

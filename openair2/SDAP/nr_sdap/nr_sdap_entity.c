@@ -34,6 +34,57 @@
 #include "tun_if.h"
 #include "nr_sdap.h"
 
+#ifdef JBPF_HOOK
+#include "jbpf.h"
+#include "jbpf_hook.h"
+#include "jbpf_defs.h"
+#include "common/utils/time_meas.h"
+
+/*
+ * SDAP Uplink Context 구조체
+ * JBPF Hook을 통해 eBPF Codelet으로 전달될 메타데이터
+ */
+struct sdap_uplink_ctx {
+    uint64_t data;          // gtp_buf 포인터 (eBPF verifier용)
+    uint64_t data_end;      // gtp_buf + gtp_len (경계 검사용)
+    uint64_t meta_data;     // 타임스탬프 (rdtsc_oai)
+
+    /* SDAP 특화 필드 */
+    uint32_t ue_id;         // UE 식별자 (RNTI)
+    uint8_t pdusession_id;  // PDU Session ID
+    uint8_t rb_id;          // DRB ID (PDCP entity)
+    uint8_t qfi;            // QoS Flow Identifier (0-63)
+    uint8_t dc_bit;         // Data/Control PDU 구분 비트
+    uint32_t gtp_len;       // GTP 패킷 크기
+};
+
+/*
+ * JBPF Hook 선언 및 정의
+ * Hook 이름: sdap_uplink
+ * 이 Hook은 uplink 패킷이 GTP-U로 전송되기 직전에 호출됩니다.
+ */
+DECLARE_JBPF_HOOK(
+    sdap_uplink,                           // Hook 이름
+    struct sdap_uplink_ctx ctx,            // Context 타입
+    ctx,                                   // Context 변수명
+    HOOK_PROTO(uint8_t* gtp_buf, uint32_t gtp_len, uint32_t ue_id, uint8_t qfi, uint8_t pdusession_id, uint8_t rb_id, uint8_t dc_bit),
+    HOOK_ASSIGN(
+        ctx.data = (uint64_t)(void*)gtp_buf;
+        ctx.data_end = (uint64_t)(void*)(gtp_buf + gtp_len);
+        ctx.meta_data = rdtsc_oai();
+        ctx.ue_id = ue_id;
+        ctx.pdusession_id = pdusession_id;
+        ctx.rb_id = rb_id;
+        ctx.qfi = qfi;
+        ctx.dc_bit = dc_bit;
+        ctx.gtp_len = gtp_len;
+    )
+)
+
+DEFINE_JBPF_HOOK(sdap_uplink)
+
+#endif // JBPF_HOOK
+
 #define NO_SDAP_HEADER 0
 
 typedef struct {
@@ -210,6 +261,7 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
 {
   /* The offset of the SDAP header, it might be 0 if has_sdap_rx is not true in the pdcp entity. */
   int offset=0;
+  //1 .SDAP 헤더에서 QFI 추출 (첫 바이트의 하위 6비트) by inho
   uint8_t qfi = buf[0] & 0x3F; // QFI is always the first 6 bits in the first octet
   if (qfi >= SDAP_MAX_QFI) {
     LOG_E(SDAP, "Invalid QFI %d received in SDAP header\n", qfi);
@@ -217,12 +269,13 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
   }
 
   // Fetch entity role from the qfi2drb_table
+  //2. QFI -> DRB 매핑 테이블에서 entity role 확인 by inho
   bool sdap_ul_rx = entity->qfi2drb_table[qfi].entity_role & SDAP_UL_RX; // gNB RX entity
   bool sdap_dl_rx = entity->qfi2drb_table[qfi].entity_role & SDAP_DL_RX; // UE RX entity
 
   if (is_gnb) { // gNB
-    if (sdap_ul_rx) { // UL Data/Control PDU with SDAP header
-      offset = SDAP_HDR_LENGTH;
+    if (sdap_ul_rx) { // UL Data/Control PDU with SDAP header (SDAP 헤더가 있는 UL 데이터/제어 PDU)
+      offset = SDAP_HDR_LENGTH;  // 1바이트
       nr_sdap_ul_hdr_t *sdap_hdr = (nr_sdap_ul_hdr_t *)buf;
       LOG_D(SDAP, "RX Entity Received QFI:    %u\n", sdap_hdr->QFI);
       LOG_D(SDAP, "RX Entity Received R bit:  %u\n", sdap_hdr->R);
@@ -241,6 +294,33 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
 
     uint8_t *gtp_buf = (uint8_t *)(buf + offset);
     size_t gtp_len = size - offset;
+
+#ifdef JBPF_HOOK
+    /*
+     * JBPF Hook 호출: GTP-U 전송 직전 패킷 모니터링
+     *
+     * 이 시점에서:
+     * - SDAP 헤더가 제거된 상태 (gtp_buf는 IP 패킷의 시작)
+     * - QFI 정보가 추출된 상태
+     * - GTP-U로 전송될 준비 완료
+     *
+     * eBPF Codelet은 다음을 수행할 수 있음:
+     * - UE별 패킷 통계 수집
+     * - QFI별 트래픽 분류
+     * - 커스텀 패킷 필터링
+     */
+    uint8_t dc_bit = sdap_ul_rx ? ((nr_sdap_ul_hdr_t *)buf)->DC : 0;
+
+    hook_sdap_uplink(
+        gtp_buf,           // GTP 패킷 버퍼 (IP 패킷)
+        (uint32_t)gtp_len, // 패킷 크기
+        ue_id,             // UE 식별자
+        qfi,               // QoS Flow ID
+        pdusession_id,     // PDU Session ID
+        pdcp_entity,       // DRB ID (PDCP entity)
+        dc_bit             // Data/Control PDU 구분
+    );
+#endif
 
     // Pushing SDAP SDU to GTP-U Layer
     LOG_D(SDAP, "sending message to gtp size %ld\n", gtp_len);
