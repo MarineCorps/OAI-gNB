@@ -3,7 +3,6 @@
 // JBPF Codelet: SDAP Uplink 패킷 통계 수집
 // 이 codelet은 UE별로 업링크 패킷 통계를 수집하고 주기적으로 리포트합니다.
 
-#include <string.h>
 #include "jbpf_defs.h"
 #include "jbpf_helper.h"
 

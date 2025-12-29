@@ -741,7 +741,7 @@ int main( int argc, char **argv ) {
       jbpf_config.lcm_ipc_config.lcm_ipc_name,
       sizeof(jbpf_config.lcm_ipc_config.lcm_ipc_name) - 1,
       "%s",
-      "/tmp/jbpf_oai_gnb.sock"
+      "jbpf_oai_gnb"
   );
 
   /*
@@ -781,9 +781,9 @@ int main( int argc, char **argv ) {
   jbpf_register_io_output_cb(jbpf_io_output_handler);
 
   LOG_I(GNB_APP, "JANUS (jbpf) framework initialized successfully\n");
-  LOG_I(GNB_APP, "  - LCM IPC socket: /tmp/jbpf_oai_gnb.sock\n");
+  LOG_I(GNB_APP, "  - LCM IPC socket: /tmp/jbpf/jbpf_oai_gnb\n");
   LOG_I(GNB_APP, "  - I/O mode: Local (callback-based)\n");
-  LOG_I(GNB_APP, "Load codelets with: jbpf_lcm_cli load -s /tmp/jbpf_oai_gnb.sock -c <yaml>\n");
+  LOG_I(GNB_APP, "Load codelets with: jbpf_lcm_cli load -s /tmp/jbpf/jbpf_oai_gnb -c <yaml>\n");
 #endif // JBPF_HOOK
 
   // wait for F1 Setup Response before starting L1 for real

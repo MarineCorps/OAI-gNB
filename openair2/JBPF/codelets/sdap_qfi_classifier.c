@@ -3,7 +3,6 @@
 // JBPF Codelet: QFI별 트래픽 분류 및 모니터링
 // 5G QoS Flow Identifier(QFI)를 기반으로 트래픽을 분류하고 통계를 수집합니다.
 
-#include <string.h>
 #include "jbpf_defs.h"
 #include "jbpf_helper.h"
 

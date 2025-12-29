@@ -34,11 +34,18 @@
 #include "tun_if.h"
 #include "nr_sdap.h"
 
-#ifdef JBPF_HOOK
+#if defined(JBPF_HOOK) && !defined(NR_UE)
 #include "jbpf.h"
 #include "jbpf_hook.h"
 #include "jbpf_defs.h"
 #include "common/utils/time_meas.h"
+#include <pthread.h>
+
+/*
+ * 스레드별 JBPF 등록 상태 추적
+ * TLS (Thread-Local Storage)를 사용하여 각 스레드마다 독립적인 값 유지
+ */
+static __thread int jbpf_thread_registered = 0;
 
 /*
  * SDAP Uplink Context 구조체
@@ -83,7 +90,7 @@ DECLARE_JBPF_HOOK(
 
 DEFINE_JBPF_HOOK(sdap_uplink)
 
-#endif // JBPF_HOOK
+#endif // JBPF_HOOK && !NR_UE
 
 #define NO_SDAP_HEADER 0
 
@@ -299,7 +306,7 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
     uint8_t *gtp_buf = (uint8_t *)(buf + offset);
     size_t gtp_len = size - offset;
 
-#ifdef JBPF_HOOK
+#if defined(JBPF_HOOK) && !defined(NR_UE)
     /*
      * JBPF Hook 호출: GTP-U 전송 직전 패킷 모니터링
      *
@@ -313,6 +320,20 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
      * - QFI별 트래픽 분류
      * - 커스텀 패킷 필터링
      */
+    /*
+     * 스레드별 JBPF 등록 확인 및 자동 등록
+     * SDAP는 다양한 스레드에서 실행될 수 있으므로, Hook 호출 전에
+     * 현재 스레드가 JBPF에 등록되었는지 확인하고 필요시 자동 등록
+     */
+    if (!jbpf_thread_registered) {
+        jbpf_register_thread();
+        jbpf_thread_registered = 1;
+        LOG_I(SDAP, "[JBPF] Auto-registered thread %ld\n", pthread_self());
+    }
+
+    LOG_D(SDAP, "[JBPF] Before hook: ue=%u qfi=%u pdu=%u drb=%d len=%zu\n",
+          ue_id, qfi, pdusession_id, pdcp_entity, gtp_len);
+
     uint8_t dc_bit = sdap_ul_rx ? ((nr_sdap_ul_hdr_t *)buf)->DC : 0;
 
     hook_sdap_uplink(
@@ -324,7 +345,9 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
         pdcp_entity,       // DRB ID (PDCP entity)
         dc_bit             // Data/Control PDU 구분
     );
-#endif
+
+    LOG_D(SDAP, "[JBPF] After hook\n");
+#endif // JBPF_HOOK && !NR_UE
 
     // Pushing SDAP SDU to GTP-U Layer
     LOG_D(SDAP, "sending message to gtp size %ld\n", gtp_len);
