@@ -13,8 +13,10 @@ set(CODELET_CFLAGS
     -target bpf              # eBPF 타겟 지정
     -O2                      # 최적화 레벨 2
     -g                       # 디버그 심볼 포함 (나중에 strip)
+    -D__x86_64__             # 아키텍처 정의 (eBPF 필수)
     -I${CMAKE_SOURCE_DIR}/openair2/JBPF
     -I/usr/local/include     # jbpf 헤더 위치
+    -I/usr/include/x86_64-linux-gnu   # 아키텍처별 헤더
     -Wall                    # 모든 경고 활성화
     -Wno-unused-value
     -Wno-pointer-sign

@@ -1363,6 +1363,7 @@ target_link_libraries(L2_UE PRIVATE GTPV1U)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
+target_compile_definitions(NR_L2_UE PRIVATE NR_UE)
 target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
@@ -1884,6 +1885,9 @@ if(E2_AGENT)
   target_link_libraries(nr-cuup PRIVATE e2_agent e2_agent_arg e2_ran_func_cuup)
   target_compile_definitions(nr-cuup PRIVATE ${E2AP_VERSION} ${KPM_VERSION} E2_AGENT)
 endif()
+if(JBPF_HOOK)
+  target_link_libraries(nr-cuup PUBLIC ${JBPF_LIBRARY} dl pthread)
+endif()
 
 # nr-uesoftmodem is  UE implementation
 #######################################
@@ -1916,6 +1920,7 @@ target_link_libraries(nr-uesoftmodem PRIVATE pthread m CONFIG_LIB rt nr_ue_phy_m
 target_link_libraries(nr-uesoftmodem PRIVATE ${T_LIB})
 target_link_libraries(nr-uesoftmodem PRIVATE nr_nas lib_uicc usim_lib)
 target_link_libraries(nr-uesoftmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_compile_definitions(nr-uesoftmodem PRIVATE NR_UE)
 
 # force the generation of ASN.1 so that we don't need to wait during the build
 target_link_libraries(nr-uesoftmodem PRIVATE
