@@ -39,6 +39,59 @@ unsigned short config_frames[4] = {2,9,11,13};
 #ifdef JBPF_HOOK
 #include "jbpf.h"
 #include "jbpf_io_channel.h"
+#include "openair2/JBPF/codelets/common.h"  // struct Packet5Tuple 정의
+
+/*
+ * Codelet 구조체 정의
+ * 주의: 이 구조체들은 Codelet 파일의 정의와 정확히 일치해야 합니다!
+ *
+ * C 메모리 레이아웃 개념:
+ * - 구조체 필드는 선언 순서대로 메모리에 배치됨
+ * - CPU 효율을 위해 "정렬(Alignment)" 발생
+ * - 예: uint64_t는 8바이트 경계에 배치되어야 함
+ */
+
+/*
+ * UE별 패킷 통계
+ * sdap_packet_stats.c 파일의 struct packet_stats와 동일
+ */
+struct packet_stats {
+    uint64_t rx_packets;      // 수신 패킷 수 (8 bytes, offset 0)
+    uint64_t rx_bytes;        // 수신 바이트 수 (8 bytes, offset 8)
+    uint64_t last_timestamp;  // 마지막 패킷 타임스탬프 (8 bytes, offset 16)
+};
+// sizeof(struct packet_stats) = 24 bytes
+
+/*
+ * QFI별 트래픽 통계
+ * sdap_qfi_classifier.c 파일의 struct qfi_stats와 동일
+ */
+struct qfi_stats {
+    uint32_t ue_id;           // UE 식별자 (4 bytes, offset 0)
+    uint8_t qfi;              // QoS Flow Identifier (1 byte, offset 4)
+    uint8_t padding[3];       // 정렬을 위한 패딩 (3 bytes, offset 5)
+    uint64_t packet_count;    // 패킷 수 (8 bytes, offset 8)
+    uint64_t byte_count;      // 바이트 수 (8 bytes, offset 16)
+};
+// sizeof(struct qfi_stats) = 24 bytes
+
+/*
+ * 이전 통계 저장용 (Throughput 계산에 사용)
+ *
+ * static 키워드:
+ * - 함수 호출 간에도 값이 유지됨 (전역 변수처럼)
+ * - 하지만 이 파일 내에서만 접근 가능 (scope 제한)
+ *
+ * {0} 초기화:
+ * - 모든 필드를 0으로 초기화
+ * - prev_bytes = 0, prev_timestamp = 0, initialized = false
+ */
+static struct {
+    uint64_t prev_bytes;      // 이전 바이트 수
+    uint64_t prev_timestamp;  // 이전 타임스탬프
+    bool initialized;         // 초기화 여부 (첫 샘플은 throughput 계산 불가)
+} ue_prev_stats = {0};
+
 #endif
 #include "nr-softmodem.h"
 #include <common/utils/assertions.h>
@@ -91,7 +144,6 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "x2ap_eNB.h"
 #include "openair1/SCHED_NR/sched_nr.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
-
 pthread_cond_t nfapi_sync_cond;
 pthread_mutex_t nfapi_sync_mutex;
 int nfapi_sync_var=-1; //!< protected by mutex \ref nfapi_sync_mutex
@@ -516,6 +568,240 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 #endif
 
 #ifdef JBPF_HOOK
+
+/*
+ * Stream ID 비교 함수
+ *
+ * 개념 설명:
+ * - Stream ID는 16바이트 UUID (예: 00112233445566778899AABBCCDDEE01)
+ * - 마지막 바이트로 어느 Codelet에서 왔는지 구분
+ * - inline 함수: 함수 호출 오버헤드 제거 (컴파일러가 코드를 직접 삽입)
+ * - const 포인터: 함수 내에서 stream_id 수정 불가 (안전성)
+ *
+ * YAML 설정 (oai_gnb_monitoring.yaml):
+ * - stats_output:  ...CCDDEE01  (마지막 바이트 = 0x01)
+ * - qfi_output:    ...CCDDEE02  (마지막 바이트 = 0x02)
+ */
+
+/**
+ * packet_stats Codelet 스트림 확인
+ * @return true if stream_id ends with 0x01
+ */
+static inline bool is_packet_stats_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[15] == 0x01;
+}
+
+/**
+ * qfi_stats Codelet 스트림 확인
+ * @return true if stream_id ends with 0x02
+ */
+static inline bool is_qfi_stats_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[15] == 0x02;
+}
+
+/**
+ * header_parser Codelet 스트림 확인
+ * @return true if stream_id ends with 0x03
+ *
+ * Stream ID 구분:
+ * - 0x01: packet_stats (SDAP 기본 통계)
+ * - 0x02: qfi_stats (QFI별 통계)
+ * - 0x03: header_parser (L3/L4 5-Tuple 추출) ← NEW!
+ */
+static inline bool is_header_parser_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[15] == 0x03;
+}
+
+/*
+ * Packet Stats 처리 함수
+ *
+ * 학습 개념:
+ * 1. 포인터 NULL 체크: 포인터 사용 전 항상 유효성 검사 필수
+ * 2. 타입 캐스팅: void*를 struct packet_stats*로 변환
+ * 3. 단위 변환:
+ *    - bits = bytes × 8
+ *    - Mbps = (bits per second) / 1,000,000
+ *    - KB = bytes / 1024
+ *    - ms = ns / 1,000,000
+ * 4. CPU 사이클 → 시간 변환:
+ *    - rdtsc_oai()는 CPU 사이클 수 반환
+ *    - JBPF calibration: 약 3.187 GHz = 3.187 cycles/ns
+ *    - 1 cycle ≈ 0.314 ns
+ */
+static void handle_packet_stats(struct packet_stats* stats) {
+    if (!stats) {
+        LOG_E(GNB_APP, "[JBPF] NULL packet_stats pointer\n");
+        return;
+    }
+
+    /* 기본 통계 출력 */
+    LOG_I(GNB_APP, "[JBPF Stats] Packets: %lu, Bytes: %lu\n",
+          stats->rx_packets, stats->rx_bytes);
+
+    /* Throughput 계산 (이전 통계가 있는 경우만) */
+    if (ue_prev_stats.initialized) {
+        /*
+         * 차분 계산: 현재 - 이전
+         * Codelet은 누적 값을 저장하므로 차이를 구해야 구간별 throughput 계산 가능
+         */
+        uint64_t bytes_diff = stats->rx_bytes - ue_prev_stats.prev_bytes;
+        uint64_t time_diff_cycles = stats->last_timestamp - ue_prev_stats.prev_timestamp;
+
+        /*
+         * CPU 사이클을 시간(ns)으로 변환
+         * JBPF가 calibration 시 측정한 CPU 주파수 사용
+         * 예: 3.187 GHz = 3.187 cycles/ns
+         * 따라서 time_ns = cycles / 3.187
+         */
+        double time_diff_ns = time_diff_cycles / 3.187;
+
+        /*
+         * Throughput 계산 (Mbps):
+         * - bits = bytes_diff × 8
+         * - time_s = time_diff_ns / 1,000,000,000
+         * - bps = bits / time_s
+         * - Mbps = bps / 1,000,000
+         *
+         * 단순화: (bytes_diff × 8 × 1e9) / (time_diff_ns × 1e6)
+         */
+        double throughput_mbps = (bytes_diff * 8.0 * 1000000000.0) / (time_diff_ns * 1000000.0);
+
+        LOG_I(GNB_APP, "[JBPF Stats] Throughput: %.2f Mbps (%.2f KB in %.2f ms)\n",
+              throughput_mbps,
+              bytes_diff / 1024.0,           // KB
+              time_diff_ns / 1000000.0);     // ms
+    }
+
+    /*
+     * 현재 통계를 "이전 통계"로 저장
+     * 다음 호출 시 throughput 계산에 사용
+     */
+    ue_prev_stats.prev_bytes = stats->rx_bytes;
+    ue_prev_stats.prev_timestamp = stats->last_timestamp;
+    ue_prev_stats.initialized = true;
+}
+
+/*
+ * QFI Stats 처리 함수
+ *
+ * 학습 개념:
+ * 1. switch 문: 여러 조건 분기 (if-else보다 효율적)
+ * 2. const char*: 읽기 전용 문자열 포인터
+ * 3. 5G QFI (QoS Flow Identifier) 의미:
+ *    - QFI 5: IMS (IP Multimedia Subsystem) Signaling
+ *      → VoIP 통화 시그널링, 높은 우선순위
+ *    - QFI 9: Default Bearer
+ *      → 일반 인터넷 트래픽, Best-effort
+ *    - QFI 32: Custom (우리가 추가한 slice)
+ *      → 실험용 또는 특수 서비스
+ */
+static void handle_qfi_stats(struct qfi_stats* stats) {
+    if (!stats) {
+        LOG_E(GNB_APP, "[JBPF] NULL qfi_stats pointer\n");
+        return;
+    }
+
+    /*
+     * QFI별 통계 출력
+     * %u: unsigned int (uint32_t, uint8_t)
+     * %lu: unsigned long (uint64_t)
+     * %.2f: floating point with 2 decimal places
+     */
+    LOG_I(GNB_APP, "[JBPF QFI] UE %u, QFI %u: Packets=%lu, Bytes=%lu (%.2f KB)\n",
+          stats->ue_id, stats->qfi,
+          stats->packet_count, stats->byte_count,
+          stats->byte_count / 1024.0);
+
+    /*
+     * QFI 값에 따른 트래픽 타입 추정
+     * 3GPP TS 23.501 표준 참고
+     */
+    const char* traffic_type = "Unknown";
+    switch (stats->qfi) {
+        case 1:
+            traffic_type = "Conversational Video (GBR)";
+            break;
+        case 5:
+            traffic_type = "IMS Signaling";
+            break;
+        case 9:
+            traffic_type = "Default Bearer (Best Effort)";
+            break;
+        case 32:
+            traffic_type = "Custom Slice (ffffff)";
+            break;
+        default:
+            traffic_type = "Operator-specific QFI";
+            break;
+    }
+
+    LOG_D(GNB_APP, "[JBPF QFI] Traffic type: %s\n", traffic_type);
+
+    /*
+     * QFI별 특별 처리 예시
+     * - 실제 환경에서는 QFI에 따라 다른 정책 적용 가능:
+     *   1. QFI 1 (Video): 지연시간 모니터링
+     *   2. QFI 5 (IMS): 패킷 손실률 추적
+     *   3. QFI 9 (Default): 대역폭 사용량 제한
+     */
+    if (stats->qfi == 5 && stats->packet_count > 0) {
+        LOG_D(GNB_APP, "[JBPF QFI] High-priority IMS traffic detected\n");
+    }
+}
+
+/*
+ * ============================================================
+ * Header Parser 처리 함수 (NEW!)
+ * ============================================================
+ *
+ * header_parser Codelet이 전송한 L3/L4 5-Tuple 데이터 처리
+ *
+ * 학습 개념:
+ * 1. 5-Tuple: 네트워크 플로우를 고유하게 식별하는 5가지 정보
+ *    - Source IP
+ *    - Destination IP
+ *    - Source Port
+ *    - Destination Port
+ *    - Protocol (TCP=6, UDP=17)
+ *
+ * 2. IP 주소 표현:
+ *    - 네트워크: 32bit Big-Endian (0xC0A80101)
+ *    - 사람: Dotted decimal (192.168.1.1)
+ *    - 변환: (ip >> 24).((ip >> 16) & 0xFF).((ip >> 8) & 0xFF).(ip & 0xFF)
+ *
+ * 3. 프로토콜 번호:
+ *    - 6: TCP (Transmission Control Protocol) - 연결 지향, 신뢰성
+ *    - 17: UDP (User Datagram Protocol) - 비연결, 빠름
+ *    - 1: ICMP (Internet Control Message Protocol) - Ping 등
+ *
+ * 데이터 흐름:
+ * PDCP → hook_pdcp_uplink → Codelet jbpf_main() → jbpf_ringbuf_output
+ * → jbpf_io_output_handler → handle_header_parser (여기!)
+ */
+static void handle_header_parser(struct Packet5Tuple* packet) {
+    if (!packet) {
+        return;
+    }
+
+    /* Latency 계산: (현재시간 - 보낸시간) / CPU주파수 */
+    uint64_t current_time = rdtsc_oai();
+    double latency_us = (double)(current_time - packet->timestamp) / cpuf / 1000.0;
+
+    /* IP 주소 변환 (Host Byte Order -> Dotted Decimal) */
+    uint8_t *s = (uint8_t *)&packet->src_ip;
+    uint8_t *d = (uint8_t *)&packet->dst_ip;
+
+    const char *proto_str = (packet->protocol == IPPROTO_TCP) ? "TCP" :
+                            (packet->protocol == IPPROTO_UDP) ? "UDP" : "Other";
+
+    /* Codelet 대신 여기서 로그 출력 (Latency 정보 추가) */
+    LOG_I(GNB_APP, "[CODELET] %s %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u (UE=%u QFI=%u) Latency: %.2f us\n",
+          proto_str,
+          s[0], s[1], s[2], s[3], packet->src_port,
+          d[0], d[1], d[2], d[3], packet->dst_port,
+          packet->ue_id, packet->qfi, latency_us);
+}
+
 /**
  * JBPF I/O 출력 콜백 핸들러
  *
@@ -534,7 +820,7 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
     }
 
     /* 디버그: 수신된 데이터 정보 로깅 */
-    LOG_D(GNB_APP, "Received %d buffers from codelet (stream_id: %02x%02x...)\n",
+    LOG_I(GNB_APP, "Received %d buffers from codelet (stream_id: %02x%02x...)\n",
           num_bufs, stream_id->id[0], stream_id->id[1]);
 
     /*
@@ -556,8 +842,49 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
      *    - FlexRIC E2 Metrics (xApp으로 전송)
      */
     for (int i = 0; i < num_bufs; i++) {
-        // 현재는 데이터 수신만 확인 (실제 처리는 요구사항에 따라 추후 구현)
-        // TODO: packet_stats / qfi_stats 구조체 파싱 및 처리 로직 추가
+        if (!bufs[i]) {
+            LOG_W(GNB_APP, "[JBPF] NULL buffer at index %d\n", i);
+            continue;
+        }
+
+        if (is_packet_stats_stream(stream_id)) {
+            /*
+             * Stream ID 0x01: packet_stats Codelet
+             * - SDAP 계층 기본 통계 (패킷 수, 바이트 수)
+             */
+            struct packet_stats* stats = (struct packet_stats*)bufs[i];
+            handle_packet_stats(stats);
+
+        } else if (is_qfi_stats_stream(stream_id)) {
+            /*
+             * Stream ID 0x02: qfi_stats Codelet
+             * - QFI별 트래픽 분류 통계
+             */
+            struct qfi_stats* stats = (struct qfi_stats*)bufs[i];
+            handle_qfi_stats(stats);
+
+        } else if (is_header_parser_stream(stream_id)) {
+            /*
+             * Stream ID 0x03: header_parser Codelet (NEW!)
+             * - PDCP 계층 L3/L4 헤더 파싱
+             * - 5-Tuple 추출 (src_ip, dst_ip, src_port, dst_port, protocol)
+             *
+             * 데이터 흐름:
+             * 1. PDCP deliver_sdu_drb() → hook_pdcp_uplink()
+             * 2. Codelet jbpf_main() → IP/TCP/UDP 헤더 파싱
+             * 3. jbpf_ringbuf_output() → 여기로 전송
+             */
+            struct Packet5Tuple* packet = (struct Packet5Tuple*)bufs[i];
+            handle_header_parser(packet);
+
+        } else {
+            /*
+             * 알 수 없는 Stream ID
+             * - YAML 설정 오류 또는 새로운 Codelet 추가 시 발생
+             */
+            LOG_W(GNB_APP, "[JBPF] Unknown stream ID: %02x...%02x\n",
+                  stream_id->id[0], stream_id->id[15]);
+        }
     }
 }
 #endif // JBPF_HOOK

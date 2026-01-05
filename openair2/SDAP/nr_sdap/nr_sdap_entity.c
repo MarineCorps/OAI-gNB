@@ -261,29 +261,32 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
 static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
                               int pdcp_entity,
                               int is_gnb,
+                              bool has_sdap_rx,
+                              uint8_t qfi,
                               int pdusession_id,
                               ue_id_t ue_id,
                               char *buf,
                               int size)
 {
   /* The offset of the SDAP header, it might be 0 if has_sdap_rx is not true in the pdcp entity. */
-  int offset=0;
-  //1 .SDAP 헤더에서 QFI 추출 (첫 바이트의 하위 6비트) by inho
-  uint8_t qfi = buf[0] & 0x3F; // QFI is always the first 6 bits in the first octet
-  if (qfi >= SDAP_MAX_QFI) {
-    LOG_E(SDAP, "Invalid QFI %d received in SDAP header\n", qfi);
-    return;
+  int offset = 0;
+  nr_sdap_ul_hdr_t *sdap_hdr = NULL;
+
+  // PDCP에서 전달받은 has_sdap_rx와 qfi 사용 (확실한 정보!)
+  if (has_sdap_rx && size > 0) {
+    sdap_hdr = (nr_sdap_ul_hdr_t *)buf;
+    LOG_D(SDAP, "SDAP header present: QFI=%u (from PDCP)\n", qfi);
+  } else {
+    LOG_D(SDAP, "No SDAP header: QFI=%u (default)\n", qfi);
   }
 
   // Fetch entity role from the qfi2drb_table
-  //2. QFI -> DRB 매핑 테이블에서 entity role 확인 by inho
-  bool sdap_ul_rx = entity->qfi2drb_table[qfi].entity_role & SDAP_UL_RX; // gNB RX entity
-  bool sdap_dl_rx = entity->qfi2drb_table[qfi].entity_role & SDAP_DL_RX; // UE RX entity
+  bool sdap_ul_rx = (qfi < SDAP_MAX_QFI) && (entity->qfi2drb_table[qfi].entity_role & SDAP_UL_RX);
+  bool sdap_dl_rx = (qfi < SDAP_MAX_QFI) && (entity->qfi2drb_table[qfi].entity_role & SDAP_DL_RX);
 
   if (is_gnb) { // gNB
-    if (sdap_ul_rx) { // UL Data/Control PDU with SDAP header (SDAP 헤더가 있는 UL 데이터/제어 PDU)
+    if (has_sdap_rx && sdap_ul_rx) { // UL Data/Control PDU with SDAP header
       offset = SDAP_HDR_LENGTH;  // 1바이트
-      nr_sdap_ul_hdr_t *sdap_hdr = (nr_sdap_ul_hdr_t *)buf;
       LOG_D(SDAP, "RX Entity Received QFI:    %u\n", sdap_hdr->QFI);
       LOG_D(SDAP, "RX Entity Received R bit:  %u\n", sdap_hdr->R);
       LOG_D(SDAP, "RX Entity Received DC bit: %u\n", sdap_hdr->DC);
