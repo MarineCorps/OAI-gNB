@@ -114,21 +114,17 @@ jbpf_main(void* state)
     stats->byte_count += ctx->gtp_len;
 
     /*
-     * 특정 QFI에 대한 특별 처리
-     * 예시: QFI 5 (IMS Signaling)는 100 패킷마다 리포트
-     * 실제 환경에서는 QFI별로 다른 정책 적용 가능:
-     * - QFI 1 (Video): 지연시간 모니터링
-     * - QFI 5 (IMS): 패킷 손실률 추적
-     * - QFI 9 (Default): 대역폭 사용량 제한
+     * 디버그 로그: QFI별 트래픽 모니터링
      */
-    if (ctx->qfi == 5 && stats->packet_count % 100 == 0) {
-        jbpf_ringbuf_output(&qfi_output, stats, sizeof(*stats));
-    }
+    jbpf_printf_debug("[SDAP QFI] UE=%u QFI=%u DRB=%u: pkt=%llu bytes=%llu\n",
+                      ctx->ue_id, ctx->qfi, ctx->rb_id,
+                      stats->packet_count, stats->byte_count);
 
     /*
-     * QFI 9 (Default Bearer)는 1000 패킷마다 리포트
+     * 모든 QFI에 대해 10 패킷마다 리포트 (테스트/디버깅용)
+     * 실제 환경에서는 QFI별로 다른 주기 적용 가능
      */
-    if (ctx->qfi == 9 && stats->packet_count % 1000 == 0) {
+    if (stats->packet_count % 10 == 0) {
         jbpf_ringbuf_output(&qfi_output, stats, sizeof(*stats));
     }
 

@@ -56,6 +56,7 @@ endfunction()
 # Codelet 빌드 등록
 add_jbpf_codelet(sdap_packet_stats sdap_packet_stats.c)
 add_jbpf_codelet(sdap_qfi_classifier sdap_qfi_classifier.c)
+add_jbpf_codelet(header_parser header_parser.c)  # PDCP L3/L4 Parser (NEW!)
 
 # YAML 파일도 설치
 install(FILES oai_gnb_monitoring.yaml

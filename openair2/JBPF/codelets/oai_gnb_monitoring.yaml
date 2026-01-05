@@ -24,5 +24,18 @@ codelet_descriptor:
         stream_id: '00112233445566778899AABBCCDDEE02'
     priority: 2
 
+  # Codelet 3: PDCP L3/L4 Header Parser (NEW!)
+  - codelet_name: pdcp_header_parser
+    # 빌드된 header_parser.o 파일 경로
+    codelet_path: /usr/local/share/oai/jbpf/codelets/header_parser.o
+    # PDCP Hook에 연결 (nr_pdcp_oai_api.c에서 정의)
+    hook_name: pdcp_uplink
+    # 출력 채널 설정
+    out_io_channel:
+      - name: outmap  # Codelet 내부의 ringbuf 이름 (header_parser.c에서 정의)
+        stream_id: '00112233445566778899AABBCCDDEE03'  # Stream ID 0x03
+    # 우선순위 (SDAP codelets 다음에 실행)
+    priority: 3
+
 # Codeletset 고유 ID
 codeletset_id: oai_gnb_monitoring

@@ -67,6 +67,201 @@
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "utils.h"
 
+#if defined(JBPF_HOOK) && !defined(NR_UE)
+
+#include "jbpf.h"
+#include "jbpf_hook.h"
+#include "jbpf_defs.h"
+#include "common/utils/time_meas.h"
+#include <pthread.h>
+/*
+ * ============================================================
+ * Thread-Local Storage (TLS) 설명
+ * ============================================================
+ * 
+ * __thread 키워드:
+ * - 각 스레드마다 독립적인 변수 생성
+ * - Thread A: jbpf_pdcp_thread_registered = 0 (독립)
+ * - Thread B: jbpf_pdcp_thread_registered = 0 (독립)
+ * 
+ * 왜 필요한가?
+ * - JBPF는 thread마다 한 번씩 등록 필요
+ * - 전역 변수 사용 시 한 번만 등록되어 다른 thread에서 에러
+ * - TLS 사용으로 각 thread가 독립적으로 등록 관리
+ */
+
+ static __thread int jbpf_pdcp_thread_registered = 0;
+
+/*
+ * ============================================================
+ * PDCP Uplink Context 구조체 정의
+ * ============================================================
+ *
+ * 이 구조체는 Application → Codelet으로 전달되는 데이터 컨테이너입니다.
+ *
+ * eBPF Verifier 필수 필드:
+ * - data, data_end: Codelet에서 접근할 메모리 영역의 시작/끝 포인터
+ *   (Verifier가 경계 검사를 수행하여 메모리 안전성 보장)
+ * - meta_data: 타임스탬프 등 메타정보 저장
+ *
+ * 5G 네트워크 메타데이터:
+ * - ue_id: UE 식별자 (RNTI)
+ * - pdusession_id: PDU Session 식별자
+ * - rb_id: Radio Bearer 식별자 (DRB)
+ * - has_sdap_rx: SDAP 헤더 존재 여부 (1=있음, 0=없음)
+ * - qfi: QoS Flow Identifier (0-63, SDAP 헤더에서 추출)
+ *
+ * 패킷 크기 정보:
+ * - total_size: 전체 크기 (SDAP 헤더 포함)
+ * - ip_size: IP 패킷 크기 (SDAP 헤더 제외)
+ */
+struct pdcp_uplink_ctx {
+    /* eBPF Verifier 필수 필드 */
+    uint64_t data;          // IP 패킷 시작 포인터 (SDAP 헤더 이후)
+    uint64_t data_end;      // 패킷 끝 포인터 (경계 검사용)
+    uint64_t meta_data;     // 타임스탬프 (rdtsc_oai)
+
+    /* 5G Network 메타데이터 */
+    uint32_t ue_id;         // UE 식별자 (RNTI)
+    uint8_t pdusession_id;  // PDU Session ID
+    uint8_t rb_id;          // Radio Bearer ID (DRB)
+    uint8_t has_sdap_rx;    // SDAP RX 헤더 존재 여부 (1=존재, 0=없음)
+    uint8_t qfi;            // QoS Flow Identifier (0-63)
+
+    /* 패킷 크기 정보 */
+    uint32_t total_size;    // 전체 패킷 크기 (SDAP 헤더 포함)
+    uint32_t ip_size;       // IP 패킷 크기 (SDAP 헤더 제외)
+};
+
+/*
+ * ============================================================
+ * PDCP Uplink Hook 선언
+ * ============================================================
+ *
+ * DECLARE_JBPF_HOOK 매크로 파라미터 설명:
+ *
+ * ① pdcp_uplink
+ *    - Hook 이름 (식별자)
+ *    - 실제 생성되는 함수: hook_pdcp_uplink()
+ *
+ * ② struct pdcp_uplink_ctx ctx
+ *    - Context 타입과 변수 선언
+ *    - Codelet에 전달될 데이터 컨테이너
+ *
+ * ③ ctx
+ *    - Context 변수명 (②에서 선언한 변수명 반복)
+ *
+ * ④ HOOK_PROTO(...)
+ *    - Hook 함수 시그니처 (호출점에서 전달할 파라미터 정의)
+ *    - 실제 호출: hook_pdcp_uplink(buf, size, entity, ue)
+ *
+ *    파라미터 설명:
+ *    - uint8_t* buf: 패킷 버퍼 ([SDAP 헤더?][IP 패킷])
+ *    - int size: 전체 버퍼 크기
+ *    - nr_pdcp_entity_t* entity: PDCP 엔티티 (설정 정보 포함)
+ *    - nr_pdcp_ue_t* ue: UE 정보 (ue_id 등)
+ *
+ * ⑤ HOOK_ASSIGN(...)
+ *    - Hook 호출 직전에 실행되는 Context 초기화 코드
+ *    - HOOK_PROTO의 파라미터들을 사용하여 ctx 구조체 채움
+ *    - 임시 변수 선언 가능
+ *
+ * 실행 흐름:
+ * 1. deliver_sdu_drb()에서 hook_pdcp_uplink(buf, size, entity, ue) 호출
+ * 2. HOOK_ASSIGN 코드 실행 (Context 초기화)
+ * 3. 등록된 모든 Codelet 실행 (Context 전달)
+ */
+DECLARE_JBPF_HOOK(
+    pdcp_uplink,                                  // ① Hook 이름
+    struct pdcp_uplink_ctx ctx,                   // ② Context 선언
+    ctx,                                          // ③ Context 변수명
+
+    // ④ Hook 함수 시그니처
+    HOOK_PROTO(uint8_t* buf, int size, nr_pdcp_entity_t* entity, nr_pdcp_ue_t* ue),
+
+    // ⑤ Context 초기화 코드 (Hook 호출 직전 실행)
+    HOOK_ASSIGN(
+        /*
+         * SDAP 헤더 오프셋 계산
+         * - has_sdap_rx = 1 (true): SDAP 헤더 1바이트 존재 → offset = 1
+         * - has_sdap_rx = 0 (false): SDAP 헤더 없음 → offset = 0
+         *
+         * 버퍼 구조:
+         * [SDAP 1byte][IP Packet...] ← has_sdap_rx = 1 일 때
+         * [IP Packet...]             ← has_sdap_rx = 0 일 때
+         */
+        int sdap_offset = entity->has_sdap_rx ? 1 : 0;
+
+        /*
+         * QFI 추출 (SDAP 헤더에서)
+         * - SDAP 헤더 구조: [DC(1bit)][R(1bit)][QFI(6bit)]
+         * - QFI 추출: buf[0] & 0x3F (하위 6비트만 추출)
+         *   예: buf[0] = 0b11001010
+         *       0x3F   = 0b00111111 (마스크)
+         *       결과   = 0b00001010 = 10 (QFI 값)
+         */
+        uint8_t qfi_value = 0;
+        if (entity->has_sdap_rx && size > 0) {
+            qfi_value = buf[0] & 0x3F;  // 하위 6비트 추출
+        }
+
+        /*
+         * Context 필드 채우기 (Codelet에 전달될 데이터)
+         */
+
+        /* 메모리 영역 포인터 설정 (eBPF Verifier 필수) */
+        ctx.data = (uint64_t)(void*)(buf + sdap_offset);  // IP 패킷 시작 주소
+        ctx.data_end = (uint64_t)(void*)(buf + size);     // 패킷 끝 주소
+
+        /*
+         * 포인터 타입 캐스팅 설명:
+         * 1. buf + sdap_offset → uint8_t* (SDAP 헤더 건너뛴 위치)
+         * 2. (void*) 캐스팅 → 범용 포인터로 변환
+         * 3. (uint64_t) 캐스팅 → 64비트 정수로 변환 (Context 저장용)
+         *
+         * Codelet에서는 역으로 변환:
+         * uint64_t → void* → struct iphdr*
+         */
+
+        /* 타임스탬프 (RDTSC: Read Time-Stamp Counter) */
+        ctx.meta_data = rdtsc_oai();  // CPU 사이클 카운터 읽기
+
+        /* 5G 네트워크 메타데이터 */
+        ctx.ue_id = ue->ue_id;                        // UE 식별자 (RNTI)
+        ctx.pdusession_id = entity->pdusession_id;    // PDU Session ID
+        ctx.rb_id = entity->rb_id;                    // Radio Bearer ID
+        ctx.has_sdap_rx = entity->has_sdap_rx ? 1 : 0; // SDAP 헤더 존재 여부
+        ctx.qfi = qfi_value;                          // QoS Flow Identifier
+
+        /* 패킷 크기 정보 */
+        ctx.total_size = size;              // 전체 크기 (SDAP 포함)
+        ctx.ip_size = size - sdap_offset;   // IP 패킷 크기 (SDAP 제외)
+    )
+)
+
+/*
+ * ============================================================
+ * PDCP Uplink Hook 정의
+ * ============================================================
+ *
+ * DEFINE_JBPF_HOOK 매크로:
+ * - Hook 메타데이터를 ELF section에 저장
+ * - JBPF 런타임이 Hook 위치를 찾을 수 있도록 함
+ * - DECLARE_JBPF_HOOK과 반드시 같은 파일에 있어야 함
+ *
+ * ELF Section 생성:
+ * __attribute__((section("jbpf_hooks")))
+ * struct jbpf_hook_metadata {
+ *     .name = "pdcp_uplink",
+ *     .address = &hook_pdcp_uplink,
+ *     ...
+ * }
+ */
+DEFINE_JBPF_HOOK(pdcp_uplink)
+
+#endif  // JBPF_HOOK && !NR_UE
+
+
 #define TODO do { \
     printf("%s:%d:%s: todo\n", __FILE__, __LINE__, __FUNCTION__); \
     exit(1); \
@@ -408,6 +603,8 @@ void nr_pdcp_layer_init(void)
 #include "common/utils/tun_if.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 
+// 여기에 Hook 함수를 작성하면 복호화가 끝난 Header+SDU가 전달됨 따라서 header확인 가능 by inho
+// 상위 layer로 SDU 전달하는 콜백 함수 by inho
 static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
                             char *buf, int size,
                             const nr_pdcp_integrity_data_t *msg_integrity)
@@ -415,12 +612,37 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
   nr_pdcp_ue_t *ue = _ue;
   int rb_id;
   int i;
+  uint8_t qfi = 0;  // QFI 기본값 0 (SDAP 헤더 없음)
+
+  // SDAP 헤더가 있으면 QFI 추출
+  if (entity->has_sdap_rx && size > 0) {
+    // SDAP UL 헤더: R(1bit) DC(1bit) QFI(6bits)
+    qfi = ((uint8_t *)buf)[0] & 0x3F;
+    LOG_D(PDCP, "Extracted QFI from SDAP header: %u\n", qfi);
+  }
+
+#if defined(JBPF_HOOK) && !defined(NR_UE)
+  /*
+   * JBPF Hook - PDCP Uplink
+   * 위치: PDCP 복호화 완료 후
+   * 철학: Application은 최소 코드만, 모든 분석은 Codelet에 위임
+   */
+
+  if (!jbpf_pdcp_thread_registered) {
+    jbpf_register_thread();
+    jbpf_pdcp_thread_registered = 1;
+    LOG_I(PDCP, "[JBPF] Registered PDCP thread %ld\n", pthread_self());
+  }
+
+  hook_pdcp_uplink((uint8_t*)buf, size, entity, ue);
+
+#endif  // JBPF_HOOK && !NR_UE
 
   if (IS_SOFTMODEM_NOS1 || UE_NAS_USE_TUN) {
     LOG_D(PDCP, "IP packet received with size %d, to be sent to SDAP interface, UE ID/RNTI: %ld\n", size, ue->ue_id);
     // in NoS1 mode: the SDAP should write() packets to an FD (TUN interface),
     // so below, set is_gnb == 0 to do that
-    sdap_data_ind(entity->rb_id, 0, entity->has_sdap_rx, entity->pdusession_id, ue->ue_id, buf, size);
+    sdap_data_ind(entity->rb_id, 0, entity->has_sdap_rx, qfi, entity->pdusession_id, ue->ue_id, buf, size);
   }
   else{
     for (i = 0; i < MAX_DRBS_PER_UE; i++) {
@@ -436,9 +658,10 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
     rb_found:
     {
       LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d\n", __func__, rb_id, size);
-      sdap_data_ind(rb_id,
-                    ue->drb[rb_id - 1]->is_gnb,
+      sdap_data_ind(rb_id,   /// Radio Bearer ID
+                    ue->drb[rb_id - 1]->is_gnb,  
                     ue->drb[rb_id - 1]->has_sdap_rx,
+                    qfi,
                     ue->drb[rb_id - 1]->pdusession_id,
                     ue->ue_id,
                     buf,
@@ -477,6 +700,7 @@ static void deliver_pdu_drb_gnb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id
     enqueue_rlc_data_req(&ctxt, 0, rb_id, sdu_id, 0, size, memblock);
   }
 }
+
 
 static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
                             char *buf, int size,

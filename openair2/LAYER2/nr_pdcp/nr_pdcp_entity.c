@@ -43,6 +43,7 @@ int nr_max_pdcp_pdu_size(sdu_size_t sdu_size)
   return (sdu_size + LONG_PDCP_HEADER_SIZE + PDCP_INTEGRITY_SIZE);
 }
 
+// PDCP 엔티티가 PDU를 수신할 때 호출되는 함수 by inho
 static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
                                     char *_buffer, int size)
 {
@@ -69,7 +70,6 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     LOG_E(PDCP, "bad PDU received (size = %d)\n", size);
     return;
   }
-
   if (entity->type != NR_PDCP_SRB && !(buffer[0] & 0x80)) {
     LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
     /* TODO: This is something of a hack. The most significant bit
@@ -84,6 +84,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
 
   if (entity->has_sdap_rx) sdap_header_size = 1; // SDAP Header is one byte
 
+  //1. PDCP Header 파싱: SN 크기에 따라 SN 추출 by inho
   if (entity->sn_size == SHORT_SN_SIZE) {
     rcvd_sn = ((buffer[0] & 0xf) <<  8) |
                 buffer[1];
@@ -134,13 +135,14 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     msg_integrity.header_size = header_size;
     memcpy(msg_integrity.header, buffer, header_size);
   }
-
+  //2. 만약 암호화가 되있는 경우 복호화 수행 by inho
   if (entity->has_ciphering)
     entity->decipher(entity->security_context,
                      buffer + header_size + sdap_header_size,
                      size - (header_size + sdap_header_size),
                      entity->rb_id, rcvd_count, entity->is_gnb ? 0 : 1);
 
+  //3. 무결성 검증 수행 by inho
   if (entity->has_integrity) {
     unsigned char integrity[PDCP_INTEGRITY_SIZE] = {0};
     entity->integrity(entity->integrity_context, integrity,
@@ -163,7 +165,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
 
     return;
   }
-
+  // 4. 수신한 PDU로부터 SDU 생성 및 RX 리스트에 추가 by inho
   sdu = nr_pdcp_new_sdu(rcvd_count,
                         (char *)buffer + header_size,
                         size - header_size - integrity_size,
@@ -179,6 +181,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
 
   if (rcvd_count == entity->rx_deliv) {
     /* deliver all SDUs starting from rx_deliv up to discontinuity or end of list */
+    // 5. RX 리스트에서 연속적인 SDU들을 상위 계층(SDAP)으로 전달 by inho
     uint32_t count = entity->rx_deliv;
     while (entity->rx_list != NULL && count == entity->rx_list->count) {
       nr_pdcp_sdu_t *cur = entity->rx_list;

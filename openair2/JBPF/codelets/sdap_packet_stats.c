@@ -99,6 +99,14 @@ jbpf_main(void* state)
     stats->last_timestamp = timestamp;
 
     /*
+     * 디버그 로그: 모든 패킷 모니터링
+     * jbpf_printf_debug()는 USE_JBPF_PRINTF_HELPER 빌드 옵션 필요
+     */
+    jbpf_printf_debug("[SDAP STATS] UE=%u QFI=%u Session=%u: pkt=%llu bytes=%llu\n",
+                      ue_id, ctx->qfi, ctx->pdusession_id,
+                      stats->rx_packets, stats->rx_bytes);
+
+    /*
      * 1000 패킷마다 통계를 애플리케이션으로 전송
      * ringbuf_output: Zero-copy 방식으로 데이터 전송
      */
