@@ -26,3 +26,5 @@ nfapi_nr_interface_scf
 *.out
 CMakeUserPresets.json
 *.o
+*.so
+*.a
