@@ -1,0 +1,37 @@
+# JBPF Codeletset 정의 파일 (Development)
+# 로컬 경로 사용 - sudo make install 불필요
+#
+# 사용법:
+#   cd /home/inho/OAI-gNB/openair2/JBPF/codelets
+#   make
+#   jbpf_lcm_cli -l -a /tmp/jbpf/jbpf_oai_gnb -c oai_gnb_monitoring_dev.yaml
+
+codelet_descriptor:
+  # Codelet 1: 패킷 통계 수집
+  - codelet_name: sdap_packet_stats
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/sdap_packet_stats.o
+    hook_name: sdap_uplink
+    out_io_channel:
+      - name: stats_output
+        stream_id: '00112233445566778899AABBCCDDEE01'
+    priority: 1
+
+  # Codelet 2: QFI별 트래픽 분류
+  - codelet_name: sdap_qfi_classifier
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/sdap_qfi_classifier.o
+    hook_name: sdap_uplink
+    out_io_channel:
+      - name: qfi_output
+        stream_id: '00112233445566778899AABBCCDDEE02'
+    priority: 2
+
+  # Codelet 3: PDCP L3/L4 Header Parser
+  - codelet_name: pdcp_header_parser
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/header_parser.o
+    hook_name: pdcp_uplink
+    out_io_channel:
+      - name: outmap
+        stream_id: '00112233445566778899AABBCCDDEE03'
+    priority: 3
+
+codeletset_id: oai_gnb_monitoring_dev

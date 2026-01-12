@@ -55,6 +55,7 @@ bool sdap_data_req(protocol_ctxt_t *ctxt_p,
 void sdap_data_ind(int pdcp_entity,
                    int is_gnb,
                    bool has_sdap_rx,
+                   uint8_t qfi, // QoS Flow Identifier
                    int pdusession_id,
                    ue_id_t ue_id,
                    char *buf,

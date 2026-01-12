@@ -137,6 +137,8 @@ typedef struct nr_sdap_entity_s {
   void (*rx_entity)(struct nr_sdap_entity_s *entity,
                     int pdcp_entity,
                     int is_gnb,
+                    bool has_sdap_rx, // SDAP 헤더 존재 여부
+                    uint8_t qfi, // QoS Flow Identifier
                     int pdusession_id,
                     ue_id_t ue_id,
                     char *buf,
