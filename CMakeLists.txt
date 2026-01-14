@@ -311,13 +311,37 @@ endif()
 #########################
 ##### JBPF Hook: eBPF integration
 #########################
+# jbpf는 third_party/jbpf에 submodule로 포함되어 있습니다. by inho
+#
+# 설치 방법:
+#   cd third_party/jbpf
+#   source ./setup_jbpf_env.sh
+#   mkdir -p build && cd build
+#   cmake .. && make -j$(nproc)
+#   sudo make install
+#
 set(JBPF_HOOK "OFF" CACHE STRING "Enable JANUS (jbpf) eBPF Hook Framework")
 set_property(CACHE JBPF_HOOK PROPERTY STRINGS "ON" "OFF")
 
 if (JBPF_HOOK)
-  # libjbpf 라이브러리 검색
-  find_library(JBPF_LIBRARY NAMES jbpf PATHS /usr/local/lib REQUIRED)
-  find_path(JBPF_INCLUDE_DIR NAMES jbpf.h PATHS /usr/local/include REQUIRED)
+  set(JBPF_SUBMODULE_DIR ${CMAKE_SOURCE_DIR}/third_party/jbpf)
+  set(JBPF_SUBMODULE_OUT ${JBPF_SUBMODULE_DIR}/out)
+
+  # 1순위: Submodule의 out 디렉토리 (빌드된 경우)
+  if(EXISTS ${JBPF_SUBMODULE_OUT}/lib/libjbpf.so)
+    message(STATUS "JBPF: Using submodule build at ${JBPF_SUBMODULE_OUT}")
+    set(JBPF_LIBRARY ${JBPF_SUBMODULE_OUT}/lib/libjbpf.so)
+    set(JBPF_INCLUDE_DIR ${JBPF_SUBMODULE_OUT}/inc)
+  # 2순위: 시스템 설치 (/usr/local)
+  else()
+    message(STATUS "JBPF: Submodule not built, searching system installation...")
+    find_library(JBPF_LIBRARY NAMES jbpf
+                 PATHS /usr/local/lib /usr/lib
+                 REQUIRED)
+    find_path(JBPF_INCLUDE_DIR NAMES jbpf.h
+              PATHS /usr/local/include /usr/include
+              REQUIRED)
+  endif()
 
   include_directories(${JBPF_INCLUDE_DIR})
 
