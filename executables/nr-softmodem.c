@@ -1106,6 +1106,8 @@ int main( int argc, char **argv ) {
    *
    * Codelet이 jbpf_ringbuf_output()로 데이터 전송 시
    * jbpf_io_output_handler() 함수가 자동 호출됨
+   * Callback 등록은 jbpf_register_io_output_cb()로 수행
+   * 
    */
   jbpf_register_io_output_cb(jbpf_io_output_handler);
 
