@@ -21,13 +21,14 @@ CFLAGS := -target bpf \
 CODELETS := sdap_packet_stats sdap_qfi_classifier header_parser
 OBJS := $(addsuffix .o, $(CODELETS))
 
-# 설치 경로
-INSTALL_DIR := /usr/local/share/oai/jbpf/codelets
-YAML_INSTALL_DIR := /usr/local/share/oai/jbpf
+# 로컬 개발 경로 (설치 불필요)
+LOCAL_DIR := $(shell pwd)
 
 .PHONY: all clean install
 
 all: $(OBJS)
+	@echo "Build complete! Codelets are ready in $(LOCAL_DIR)"
+	@ls -lh *.o
 
 %.o: %.c
 	@echo "Compiling eBPF codelet: $<"
@@ -35,14 +36,13 @@ all: $(OBJS)
 	$(LLVM_STRIP) -g $@
 	@echo "  → $@ created"
 
+# Optional: 시스템 경로에 설치 (운영 환경용)
 install: all
-	@echo "Installing codelets to $(INSTALL_DIR)..."
-	sudo mkdir -p $(INSTALL_DIR)
-	sudo mkdir -p $(YAML_INSTALL_DIR)
-	sudo cp $(OBJS) $(INSTALL_DIR)/
-	sudo cp oai_gnb_monitoring.yaml $(YAML_INSTALL_DIR)/
+	@echo "Installing codelets to /usr/local/share/oai/jbpf/..."
+	sudo mkdir -p /usr/local/share/oai/jbpf/codelets
+	sudo cp $(OBJS) /usr/local/share/oai/jbpf/codelets/
+	sudo cp oai_gnb_monitoring.yaml /usr/local/share/oai/jbpf/
 	@echo "Installation complete!"
-	@ls -lh $(INSTALL_DIR)
 
 clean:
 	rm -f $(OBJS)

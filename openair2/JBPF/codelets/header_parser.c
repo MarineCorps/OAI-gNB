@@ -41,6 +41,7 @@
  * - struct Packet5Tuple: 전송할 데이터 구조체
  * - 1024: 링버퍼 크기 (동시 저장 가능한 항목 수)
  */
+//Ringbuffer Map 생성 1024개의 Packet5Tuple 구조체를 저장할 수 있는 outmap이라는 이름의 링버퍼 맵을 생성
 jbpf_ringbuf_map(outmap, struct Packet5Tuple, 1024);
 
 /*
@@ -231,7 +232,9 @@ uint64_t jbpf_main(void* state)
      * jbpf_ringbuf_output(&map, &data, size)
      * → outmap 링버퍼에 packet 복사
      * → Application I/O Handler에서 읽을 수 있음
+     * RingBuffer에 5-Tuple 구조체(데이터) 전송(outmap 맵을 통해 write)
      */
+
     if (jbpf_ringbuf_output(&outmap, &packet, sizeof(packet)) < 0) {
         return 1;
     }
