@@ -1155,11 +1155,14 @@ extern "C" {
     if (device_adds[0].get(type_str) == "x4xx") {
       printf("Found USRP x400\n");
       device->type = USRP_X400_DEV;
-      usrp_master_clock = 245.76e6;
+      usrp_master_clock = 245.76e6;  // UC_X400-160 supports 245.76 MHz clock
+      printf("[DEBUG] Setting master_clock_rate to: %.2f MHz\n", usrp_master_clock/1e6);
       args += boost::str(boost::format(",master_clock_rate=%f") % usrp_master_clock);
+      printf("[DEBUG] Full UHD args: %s\n", args.c_str());
 
       // https://kb.ettus.com/USRP_Host_Performance_Tuning_Tips_and_Tricks
-      if (0 != system("sysctl -w net.core.rmem_max=62500000 net.core.wmem_max=62500000"))
+      // Buffer Overflow/Underflow를 막기 위해 커널 파라미터를 조정
+      if (0 != system("sysctl -w net.core.rmem_max=250000000 net.core.wmem_max=250000000"))
         LOG_W(HW, "Can't set kernel parameters for X4x0\n");
     }
 
