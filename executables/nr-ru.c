@@ -1668,6 +1668,18 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
       LOG_I(PHY, "RU USRP rx subdev == %s\n", ru->openair0_cfg.rx_subdev);
     }
 
+    // gNB config 파일에서 USRP 안테나 포트 설정을 읽어옴
+    // 미설정 시 UHD 기본값 사용 (X4xx: RX=RX1, TX=TX/RX0)
+    if (config_isparamset(param, RU_TX_ANTENNA)) {
+      ru->openair0_cfg.tx_antenna = strdup(*param[RU_TX_ANTENNA].strptr);
+      LOG_I(PHY, "RU USRP tx antenna == %s\n", ru->openair0_cfg.tx_antenna);
+    }
+
+    if (config_isparamset(param, RU_RX_ANTENNA)) {
+      ru->openair0_cfg.rx_antenna = strdup(*param[RU_RX_ANTENNA].strptr);
+      LOG_I(PHY, "RU USRP rx antenna == %s\n", ru->openair0_cfg.rx_antenna);
+    }
+
     if (config_isparamset(param, RU_SDR_CLK_SRC)) {
       char *str = *param[RU_SDR_CLK_SRC].strptr;
       if (strcmp(str, "internal") == 0) {

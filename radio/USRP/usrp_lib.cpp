@@ -1363,6 +1363,12 @@ extern "C" {
       s->usrp->set_rx_rate(cfg->sample_rate, i + choffset);
       uhd::tune_request_t rx_tune_req(cfg->rx_freq[i], cfg->tune_offset);
       s->usrp->set_rx_freq(rx_tune_req, i+choffset);
+      // RX 안테나 포트 설정: config에서 지정된 경우 UHD 기본값(X4xx: RX1) 대신 사용
+      // 예: "TX/RX0"으로 설정하면 TX/RX 겸용 포트로 수신
+      if (cfg->rx_antenna != NULL && cfg->rx_antenna[0] != '\0') {
+        s->usrp->set_rx_antenna(cfg->rx_antenna, i + choffset);
+        LOG_I(HW, "Setting RX antenna to %s for channel %d\n", cfg->rx_antenna, i);
+      }
       set_rx_gain_offset(cfg, i, bw_gain_adjust);
       ::uhd::gain_range_t gain_range = s->usrp->get_rx_gain_range(i+choffset);
       // limit to maximum gain
@@ -1393,6 +1399,11 @@ extern "C" {
       uhd::tune_request_t tx_tune_req(openair0_cfg[0].tx_freq[i],
                                       openair0_cfg[0].tune_offset);
       s->usrp->set_tx_freq(tx_tune_req, i+choffset);
+      // TX 안테나 포트 설정: config에서 지정된 경우 UHD 기본값 대신 사용
+      if (openair0_cfg[0].tx_antenna != NULL && openair0_cfg[0].tx_antenna[0] != '\0') {
+        s->usrp->set_tx_antenna(openair0_cfg[0].tx_antenna, i + choffset);
+        LOG_I(HW, "Setting TX antenna to %s for channel %d\n", openair0_cfg[0].tx_antenna, i);
+      }
       s->usrp->set_tx_gain(gain_range_tx.stop()-openair0_cfg[0].tx_gain[i],i+choffset);
       LOG_I(HW,"USRP TX_GAIN:%3.2lf gain_range:%3.2lf tx_gain:%3.2lf\n", gain_range_tx.stop()-openair0_cfg[0].tx_gain[i], gain_range_tx.stop(), openair0_cfg[0].tx_gain[i]);
     }
