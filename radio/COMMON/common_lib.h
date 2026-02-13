@@ -236,6 +236,14 @@ typedef struct openair0_config {
   char* rx_subdev;
   //! tx daughter card
   char* tx_subdev;
+  //! RX 안테나 포트 선택 - UHD 기본값을 덮어씀 (예: X4xx는 "TX/RX0", B2xx/X3xx는 "TX/RX")
+  //! NULL이거나 빈 문자열이면 UHD 기본값 사용 (X4xx: "RX1", B2xx/X3xx: "RX2")
+  //! gNB config 파일의 RUs 섹션에서 rx_antenna로 설정
+  char* rx_antenna;
+  //! TX 안테나 포트 선택 - UHD 기본값을 덮어씀 (예: X4xx는 "TX/RX0", B2xx/X3xx는 "TX/RX")
+  //! NULL이거나 빈 문자열이면 UHD 기본값 사용
+  //! gNB config 파일의 RUs 섹션에서 tx_antenna로 설정
+  char* tx_antenna;
   //! \brief RX base addresses for mmapped_dma
   int32_t *rxbase[8];
   //! \brief RX buffer size for direct access

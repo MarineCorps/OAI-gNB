@@ -105,6 +105,9 @@ typedef enum {
 #define CONFIG_STRING_RU_NR_SCS_FOR_RASTER        "nr_scs_for_raster"
 #define CONFIG_STRING_RU_TX_SUBDEV                "tx_subdev"
 #define CONFIG_STRING_RU_RX_SUBDEV                "rx_subdev"
+// USRP 안테나 포트 선택을 위한 config 파라미터 (gNB config 파일의 RUs 섹션에서 사용)
+#define CONFIG_STRING_RU_TX_ANTENNA               "tx_antenna"
+#define CONFIG_STRING_RU_RX_ANTENNA               "rx_antenna"
 #define CONFIG_STRING_RU_RXFH_CORE_ID             "rxfh_core_id"
 #define CONFIG_STRING_RU_TXFH_CORE_ID             "txfh_core_id"
 #define CONFIG_STRING_RU_TP_CORES                 "tp_cores"
@@ -162,6 +165,9 @@ typedef enum {
 #define RU_NR_SCS_FOR_RASTER          32
 #define RU_TX_SUBDEV                  33
 #define RU_RX_SUBDEV                  34
+// USRP 안테나 포트 선택 파라미터 인덱스
+#define RU_TX_ANTENNA                 43
+#define RU_RX_ANTENNA                 44
 #define RU_RXFH_CORE_ID               35
 #define RU_TXFH_CORE_ID               36
 #define RU_TP_CORES                   37
@@ -219,6 +225,8 @@ typedef enum {
   {CONFIG_STRING_RU_HALF_SLOT_PARALLELIZATION, HLP_RU_HALF_SLOT_PARALLELIZATION,  0,       .uptr=NULL,       .defintval=1,                 TYPE_UINT,        0}, \
   {CONFIG_STRING_RU_RU_THREAD_CORE,            HLP_RU_RU_THREAD_CORE,             0,       .uptr=NULL,       .defintval=-1,                TYPE_UINT,         0}, \
   {CONFIG_STRING_RU_GPIO_CONTROL,              HLP_RU_GPIO_CONTROL,               0,       .strptr=NULL,     .defstrval="generic",         TYPE_STRING,      0}, \
+  {CONFIG_STRING_RU_TX_ANTENNA,                NULL,                              0,       .strptr=NULL,     .defstrval="",                TYPE_STRING,      0}, /* TX 안테나 포트 (예: "TX/RX0") */ \
+  {CONFIG_STRING_RU_RX_ANTENNA,                NULL,                              0,       .strptr=NULL,     .defstrval="",                TYPE_STRING,      0}, /* RX 안테나 포트 (예: "TX/RX0") */ \
 }
 // clang-format on
 
