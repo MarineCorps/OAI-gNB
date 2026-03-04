@@ -92,6 +92,71 @@ static struct {
     bool initialized;         // 초기화 여부 (첫 샘플은 throughput 계산 불가)
 } ue_prev_stats = {0};
 
+/*
+ * MAC 스케줄러 Codelet 출력 구조체
+ *
+ * 각 구조체는 대응하는 codelet 파일의 출력 구조체와 필드 순서/타입/크기가
+ * 정확히 일치해야 한다. 불일치 시 잘못된 값을 읽게 된다.
+ */
+
+/* mac_dl_prb_stats.c: struct dl_prb_report와 동일 */
+struct dl_prb_report {
+    uint64_t timestamp;
+    uint32_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint16_t rb_start;
+    uint16_t rb_size;
+    uint8_t  mcs;
+    uint32_t tb_size;
+    uint8_t  harq_pid;
+    uint8_t  is_retx;
+    uint32_t total_dl_bytes;
+    uint32_t total_slots;
+};
+
+/* mac_ul_prb_stats.c: struct ul_prb_report와 동일 */
+struct ul_prb_report {
+    uint64_t timestamp;
+    uint32_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint16_t rb_start;
+    uint16_t rb_size;
+    uint8_t  mcs;
+    uint32_t tb_size;
+    int32_t  buffer_bytes;
+    uint8_t  harq_pid;
+    uint8_t  is_retx;
+    uint32_t total_ul_bytes;
+    uint32_t total_slots;
+    uint8_t  buffer_pressure_pct;
+};
+
+/* mac_bsr_monitor.c: struct bsr_report와 동일 */
+struct bsr_report {
+    uint64_t timestamp;
+    uint32_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint8_t  bsr_type;
+    uint32_t estimated_bytes;
+    uint8_t  lcg_id;
+    uint32_t bsr_count;
+    uint32_t peak_bytes;
+};
+
+/* mac_sr_monitor.c: struct sr_report와 동일 */
+struct sr_report {
+    uint64_t timestamp;
+    uint32_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint8_t  ul_cqi;
+    uint32_t sr_count;
+    uint32_t avg_ul_cqi;
+};
+
 #endif
 #include "nr-softmodem.h"
 #include <common/utils/assertions.h>
@@ -528,7 +593,7 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
   printf("After RCconfig_NR_E2agent %s %s \n",oai_args.sm_dir, oai_args.ip  );
 
   fr_args_t args = {0};
-  memcpy(args.ip, oai_args.ip, FR_IP_ADDRESS_LEN);
+  args.ip = oai_args.ip;
   memcpy(args.libs_dir, oai_args.sm_dir, FR_CONF_FILE_LEN);
 
   sleep(1);
@@ -582,33 +647,44 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
  * - qfi_output:    ...CCDDEE02  (마지막 바이트 = 0x02)
  */
 
-/**
- * packet_stats Codelet 스트림 확인
- * @return true if stream_id ends with 0x01
- */
-static inline bool is_packet_stats_stream(const jbpf_io_stream_id_t* stream_id) {
-    return stream_id->id[15] == 0x01;
-}
-
-/**
- * qfi_stats Codelet 스트림 확인
- * @return true if stream_id ends with 0x02
- */
-static inline bool is_qfi_stats_stream(const jbpf_io_stream_id_t* stream_id) {
-    return stream_id->id[15] == 0x02;
-}
-
-/**
- * header_parser Codelet 스트림 확인
- * @return true if stream_id ends with 0x03
+/*
+ * Stream ID 구분 전략:
  *
- * Stream ID 구분:
- * - 0x01: packet_stats (SDAP 기본 통계)
- * - 0x02: qfi_stats (QFI별 통계)
- * - 0x03: header_parser (L3/L4 5-Tuple 추출) ← NEW!
+ * SDAP/PDCP 스트림:  "00112233445566778899AABBCCDDEE0X" → id[0] = 0x00
+ * MAC 스케줄러 스트림: "AABB0011223344556677889900000X0X" → id[0] = 0xAA
+ *
+ * id[15] (마지막 바이트)만 확인하면 두 그룹 간 충돌 발생.
+ * id[0]로 스트림 그룹을 먼저 구분한 후 id[15]로 codelet을 식별한다.
  */
+
+/* SDAP/PDCP 스트림 확인 함수 (id[0] == 0x00) */
+static inline bool is_packet_stats_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0x00 && stream_id->id[15] == 0x01;
+}
+
+static inline bool is_qfi_stats_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0x00 && stream_id->id[15] == 0x02;
+}
+
 static inline bool is_header_parser_stream(const jbpf_io_stream_id_t* stream_id) {
-    return stream_id->id[15] == 0x03;
+    return stream_id->id[0] == 0x00 && stream_id->id[15] == 0x03;
+}
+
+/* MAC 스케줄러 스트림 확인 함수 (id[0] == 0xAA) */
+static inline bool is_mac_dl_prb_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x01;
+}
+
+static inline bool is_mac_ul_prb_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x02;
+}
+
+static inline bool is_mac_bsr_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x03;
+}
+
+static inline bool is_mac_sr_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x04;
 }
 
 /*
@@ -801,6 +877,63 @@ static void handle_header_parser(struct Packet5Tuple* packet) {
           packet->ue_id, packet->qfi, latency_us);
 }
 
+/* ============================================================
+ * MAC 스케줄러 Codelet 핸들러 함수들
+ * ============================================================ */
+
+static void handle_mac_dl_prb(struct dl_prb_report *r)
+{
+    if (!r)
+        return;
+    LOG_I(GNB_APP,
+          "[MAC DL] RNTI=0x%04x frame=%u slot=%u RB=[%u+%u] MCS=%u TB=%uB"
+          " retx=%u total_dl=%.1fKB slots=%u\n",
+          r->rnti, r->frame, r->slot,
+          r->rb_start, r->rb_size, r->mcs, r->tb_size,
+          r->is_retx,
+          r->total_dl_bytes / 1024.0f, r->total_slots);
+}
+
+static void handle_mac_ul_prb(struct ul_prb_report *r)
+{
+    if (!r)
+        return;
+    LOG_I(GNB_APP,
+          "[MAC UL] RNTI=0x%04x frame=%u slot=%u RB=[%u+%u] MCS=%u TB=%uB"
+          " buf=%dB pressure=%u%% retx=%u total_ul=%.1fKB slots=%u\n",
+          r->rnti, r->frame, r->slot,
+          r->rb_start, r->rb_size, r->mcs, r->tb_size,
+          r->buffer_bytes, r->buffer_pressure_pct,
+          r->is_retx,
+          r->total_ul_bytes / 1024.0f, r->total_slots);
+}
+
+static void handle_mac_bsr(struct bsr_report *r)
+{
+    if (!r)
+        return;
+    const char *bsr_type_str = (r->bsr_type == 0) ? "Short" : "Long";
+    LOG_I(GNB_APP,
+          "[MAC BSR] RNTI=0x%04x frame=%u slot=%u type=%s LCG=%u"
+          " est=%uB count=%u peak=%.1fKB\n",
+          r->rnti, r->frame, r->slot,
+          bsr_type_str, r->lcg_id,
+          r->estimated_bytes, r->bsr_count,
+          r->peak_bytes / 1024.0f);
+}
+
+static void handle_mac_sr(struct sr_report *r)
+{
+    if (!r)
+        return;
+    LOG_I(GNB_APP,
+          "[MAC SR] RNTI=0x%04x frame=%u slot=%u UL_CQI=%u"
+          " sr_count=%u avg_cqi=%.2f\n",
+          r->rnti, r->frame, r->slot,
+          r->ul_cqi, r->sr_count,
+          r->avg_ul_cqi / 100.0f);
+}
+
 /**
  * JBPF I/O 출력 콜백 핸들러
  *
@@ -876,11 +1009,19 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
             struct Packet5Tuple* packet = (struct Packet5Tuple*)bufs[i];
             handle_header_parser(packet);
 
+        } else if (is_mac_dl_prb_stream(stream_id)) {
+            handle_mac_dl_prb((struct dl_prb_report *)bufs[i]);
+
+        } else if (is_mac_ul_prb_stream(stream_id)) {
+            handle_mac_ul_prb((struct ul_prb_report *)bufs[i]);
+
+        } else if (is_mac_bsr_stream(stream_id)) {
+            handle_mac_bsr((struct bsr_report *)bufs[i]);
+
+        } else if (is_mac_sr_stream(stream_id)) {
+            handle_mac_sr((struct sr_report *)bufs[i]);
+
         } else {
-            /*
-             * 알 수 없는 Stream ID
-             * - YAML 설정 오류 또는 새로운 Codelet 추가 시 발생
-             */
             LOG_W(GNB_APP, "[JBPF] Unknown stream ID: %02x...%02x\n",
                   stream_id->id[0], stream_id->id[15]);
         }

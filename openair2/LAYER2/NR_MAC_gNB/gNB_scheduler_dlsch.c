@@ -43,6 +43,90 @@
 #include "executables/softmodem-common.h"
 #include "../../../nfapi/oai_integration/vendor_ext.h"
 
+/*
+ * ──────────────────────────────────────────────────────────────
+ * JBPF Hook: mac_dl_prb_alloc
+ * ──────────────────────────────────────────────────────────────
+ * 조건부 컴파일: cmake에서 -DJBPF_HOOK 옵션을 주면 활성화된다.
+ *   cmake .. -DJBPF_HOOK=ON
+ *
+ * #if defined(JBPF_HOOK) 블록 안의 코드는 JBPF_HOOK이 정의된
+ * 경우에만 컴파일된다. 그렇지 않으면 hook_mac_dl_prb_alloc()
+ * 함수는 jbpf_hook.h의 #else 분기에서 빈 inline 함수로 대체된다.
+ * ──────────────────────────────────────────────────────────────
+ */
+#if defined(JBPF_HOOK)
+#include "jbpf.h"
+#include "jbpf_hook.h"
+#include "jbpf_defs.h"
+#include "common/utils/time_meas.h"    /* rdtsc_oai() */
+#include "openair2/JBPF/mac_scheduler_hooks.h"
+
+/*
+ * jbpf_register_thread() 미호출 시 hook 호출에서 segfault 발생.
+ * __thread 키워드로 스레드별 독립적인 플래그를 유지.
+ * (SDAP: jbpf_thread_registered, PDCP: jbpf_pdcp_thread_registered 와 동일한 패턴)
+ */
+static __thread int jbpf_dlsch_thread_registered = 0;
+
+/*
+ * DECLARE_JBPF_HOOK 매크로 설명:
+ *
+ *   DECLARE_JBPF_HOOK(이름, ctx타입, ctx변수명, 파라미터목록, 할당문)
+ *
+ *   이 매크로는 다음을 자동으로 생성한다:
+ *     1) hook_mac_dl_prb_alloc(...) 라는 inline 함수
+ *     2) 함수 내부에서 codelet이 있으면 __RUN_JBPF_HOOK()로 실행
+ *     3) codelet이 없으면 아무것도 안 함 (zero overhead)
+ *
+ *   HOOK_PROTO(...)  : 함수 파라미터 선언부
+ *   HOOK_ASSIGN(...) : context 구조체에 파라미터 값을 채우는 코드
+ *
+ *   호출 방법:
+ *     hook_mac_dl_prb_alloc(rnti, frame, slot, rb_start, rb_size,
+ *                           mcs, tb_size, harq_pid, is_retx);
+ */
+DECLARE_JBPF_HOOK(
+    mac_dl_prb_alloc,                     /* Hook 이름 (전역적으로 유일해야 함) */
+    struct mac_dl_prb_alloc_ctx ctx,      /* Context 타입과 변수명 선언 */
+    ctx,                                  /* __RUN_JBPF_HOOK에 전달할 변수 */
+    HOOK_PROTO(                           /* 함수 파라미터 목록 */
+        uint16_t rnti,
+        uint16_t frame,
+        uint8_t  slot,
+        uint16_t rb_start,
+        uint16_t rb_size,
+        uint8_t  mcs,
+        uint32_t tb_size,
+        uint8_t  harq_pid,
+        uint8_t  is_retx
+    ),
+    HOOK_ASSIGN(                          /* context 필드 채우기 */
+        ctx.data      = 0;                /* MAC hook은 패킷 버퍼 없음 */
+        ctx.data_end  = 0;
+        ctx.meta_data = rdtsc_oai();      /* CPU 타임스탬프 (나노초 단위 아님, CPU 사이클) */
+        ctx.rnti      = rnti;
+        ctx.frame     = frame;
+        ctx.slot      = slot;
+        ctx.rb_start  = rb_start;
+        ctx.rb_size   = rb_size;
+        ctx.mcs       = mcs;
+        ctx.tb_size   = tb_size;
+        ctx.harq_pid  = harq_pid;
+        ctx.is_retx   = is_retx;
+    )
+)
+
+/*
+ * DEFINE_JBPF_HOOK 매크로:
+ *   Hook 구조체(__jbpf_hook_mac_dl_prb_alloc)를 ELF 섹션에 등록.
+ *   이 섹션은 jbpf 런타임이 시작 시 스캔하여 hook 테이블을 구성한다.
+ *   각 Hook 이름마다 반드시 하나의 DEFINE이 필요하다 (one definition rule).
+ */
+DEFINE_JBPF_HOOK(mac_dl_prb_alloc)
+
+#endif /* JBPF_HOOK */
+
 ////////////////////////////////////////////////////////
 /////* DLSCH MAC PDU generation (6.1.2 TS 38.321) */////
 ////////////////////////////////////////////////////////
@@ -584,6 +668,40 @@ static bool allocate_dl_retransmission(gNB_MAC_INST *nr_mac,
   new_sched.bwp_info = bwp_info;
 
   post_process_dlsch(nr_mac, pp_pdsch, UE, &new_sched);
+// thread를 등록하지 않으면 Segmentation fault이 발생한다. 이유는 아직 모르겠음. JBPF_HOOK이 정의된 경우에만 등록하도록 한다.
+#if defined(JBPF_HOOK)
+  if (!jbpf_dlsch_thread_registered) {
+    jbpf_register_thread();
+    jbpf_dlsch_thread_registered = 1;
+  }
+  /*
+   * ── JBPF Hook 호출: DL 재전송(Retransmission) PRB 할당 ──────
+   *
+   * 이 함수(allocate_dl_retransmission)는 HARQ 재전송 경로다.
+   * 즉, UE가 이전에 받은 패킷을 NACK/DTX하여 다시 전송하는 경우.
+   *
+   * frame / slot:
+   *   pp_pdsch는 post_process_pdsch_t 타입으로, 스케줄링 대상
+   *   프레임/슬롯 정보를 담고 있다. 이를 통해 slot을 얻는다.
+   *   (allocate_dl_retransmission 함수 내 line 506~507 참고)
+   *
+   * new_sched.dl_harq_pid는 int8_t → uint8_t 캐스팅.
+   *   음수가 될 수 없는 값이므로 안전.
+   *
+   * is_retx = 1: 재전송임을 명시 (신규 전송은 0)
+   * ─────────────────────────────────────────────────────────── */
+  hook_mac_dl_prb_alloc(
+      UE->rnti,
+      (uint16_t)frame,           /* pp_pdsch->frame (line 506에서 설정) */
+      (uint8_t)slot,             /* pp_pdsch->slot  (line 507에서 설정) */
+      new_sched.rbStart,
+      new_sched.rbSize,
+      new_sched.mcs,
+      new_sched.tb_size,
+      (uint8_t)new_sched.dl_harq_pid,
+      1  /* is_retx = 1: 재전송 */
+  );
+#endif /* JBPF_HOOK */
 
   /* retransmissions: directly allocate */
   *n_rb_sched -= new_sched.rbSize;
@@ -908,6 +1026,42 @@ static void pf_dl(gNB_MAC_INST *mac,
                   &sched_pdsch.rbSize);
 
     post_process_dlsch(mac, pp_pdsch, iterator->UE, &sched_pdsch);
+
+#if defined(JBPF_HOOK)
+    if (!jbpf_dlsch_thread_registered) {
+      jbpf_register_thread();
+      jbpf_dlsch_thread_registered = 1;
+    }
+    /*
+     * ── JBPF Hook 호출: DL 신규 전송(New Transmission) PRB 할당 ──
+     *
+     * 이 경로는 HARQ 신규 전송: UE에게 처음으로 이 데이터를 보내는 시점.
+     *
+     * sched_pdsch.rbStart : BWP 기준 상대 PRB 인덱스
+     *   실제 물리 주파수 = bwp_start + rbStart 번째 PRB
+     *
+     * sched_pdsch.dl_harq_pid:
+     *   사용할 HARQ 프로세스 ID. NR에서 UE당 최대 16개(0~15).
+     *   NR_UE_sched_ctrl_t.available_dl_harq 큐에서 꺼낸 값.
+     *
+     * iterator->UE->rnti:
+     *   현재 스케줄링 중인 UE의 RNTI.
+     *   iterator는 스케줄링 우선순위 순으로 UE를 순회하는 커서.
+     *
+     * is_retx = 0: 신규 전송
+     * ──────────────────────────────────────────────────────────── */
+    hook_mac_dl_prb_alloc(
+        iterator->UE->rnti,
+        (uint16_t)frame,
+        (uint8_t)slot,
+        sched_pdsch.rbStart,
+        sched_pdsch.rbSize,
+        sched_pdsch.mcs,
+        sched_pdsch.tb_size,
+        (uint8_t)sched_pdsch.dl_harq_pid,
+        0  /* is_retx = 0: 신규 전송 */
+    );
+#endif /* JBPF_HOOK */
 
     /* transmissions: directly allocate */
     n_rb_sched[beam.idx] -= sched_pdsch.rbSize;

@@ -36,6 +36,134 @@
 #include <openair2/UTIL/OPT/opt.h>
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
+/*
+ * ──────────────────────────────────────────────────────────────
+ * JBPF Hook: mac_ul_prb_alloc
+ * ──────────────────────────────────────────────────────────────
+ * UL(Uplink) 스케줄러에서 PUSCH 자원 할당 확정 후 호출된다.
+ *
+ * UL 스케줄링의 핵심 흐름:
+ *
+ *   [UL 전처리기] → UE별 우선순위/MCS 결정
+ *        ↓
+ *   [nr_find_nb_rb()] → BSR 기반으로 최소 PRB 수 계산
+ *        ↓
+ *   [VRB map 탐색] → rbStart(시작 PRB) 결정
+ *        ↓
+ *   [post_process_ulsch()] → NFAPI UL DCI 구조체 채우기
+ *        ↓
+ *   [Hook 호출] ← 여기서 hook_mac_ul_prb_alloc() 실행
+ *
+ * DL hook과 달리 buffer_bytes, sched_ul_bytes를 포함한다.
+ * 이를 통해 UE의 UL 버퍼 압력(buffer pressure)을 관측할 수 있다.
+ * ──────────────────────────────────────────────────────────────
+ */
+#if defined(JBPF_HOOK)
+#include "jbpf.h"
+#include "jbpf_hook.h"
+#include "jbpf_defs.h"
+#include "common/utils/time_meas.h"
+#include "openair2/JBPF/mac_scheduler_hooks.h"
+
+/* SDAP/PDCP와 동일한 패턴: hook 호출 스레드 자동 등록 */
+static __thread int jbpf_ulsch_thread_registered = 0;
+
+/*
+ * DECLARE_JBPF_HOOK: hook_mac_ul_prb_alloc() 함수 생성
+ *
+ * 파라미터 해설:
+ *   rnti        : UE 식별자
+ *   frame/slot  : 5G NR 시간 단위
+ *   rb_start    : 시작 PRB (BWP 기준 상대값)
+ *   rb_size     : 할당 PRB 수 (UL PRB 점유율 계산에 사용)
+ *   mcs         : UL MCS 인덱스 (UE의 채널 품질 반영)
+ *   tb_size     : 전송 블록 크기 = 이 슬롯에서 UE가 올릴 수 있는 최대 바이트
+ *   buffer_bytes: UE의 UL RLC 버퍼 크기 (BSR 기반 추정값)
+ *                 → 큰 값이면 UE에 더 많은 PRB를 줘야 함
+ *   sched_ul_bytes: 이미 예약된 UL grant 바이트
+ *                 → 스케줄러가 중복 예약을 방지하는 데 사용
+ *   harq_pid    : UL HARQ 프로세스 ID
+ *   is_retx     : 0=신규, 1=재전송
+ */
+DECLARE_JBPF_HOOK(
+    mac_ul_prb_alloc,
+    struct mac_ul_prb_alloc_ctx ctx,
+    ctx,
+    HOOK_PROTO(
+        uint16_t rnti,
+        uint16_t frame,
+        uint8_t  slot,
+        uint16_t rb_start,
+        uint16_t rb_size,
+        uint8_t  mcs,
+        uint32_t tb_size,
+        int32_t  buffer_bytes,
+        int32_t  sched_ul_bytes,
+        uint8_t  harq_pid,
+        uint8_t  is_retx
+    ),
+    HOOK_ASSIGN(
+        ctx.data           = 0;
+        ctx.data_end       = 0;
+        ctx.meta_data      = rdtsc_oai();
+        ctx.rnti           = rnti;
+        ctx.frame          = frame;
+        ctx.slot           = slot;
+        ctx.rb_start       = rb_start;
+        ctx.rb_size        = rb_size;
+        ctx.mcs            = mcs;
+        ctx.tb_size        = tb_size;
+        ctx.buffer_bytes   = buffer_bytes;
+        ctx.sched_ul_bytes = sched_ul_bytes;
+        ctx.harq_pid       = harq_pid;
+        ctx.is_retx        = is_retx;
+    )
+)
+
+DEFINE_JBPF_HOOK(mac_ul_prb_alloc)
+
+/*
+ * mac_bsr_event Hook 선언
+ *
+ * UE로부터 Short/Long BSR MAC CE를 수신했을 때 호출된다.
+ * BSR은 UE가 UL 데이터가 생겼음을 gNB에 알리는 시그널링이다.
+ *
+ * 파라미터:
+ *   rnti           : UE 식별자
+ *   frame / slot   : BSR 수신 시점
+ *   bsr_type       : 0=Short, 1=Long
+ *   estimated_bytes: gNB가 추정한 UL 버퍼 크기 (바이트)
+ *   lcg_id         : Short BSR의 LCG ID (Long BSR은 0xFF)
+ */
+DECLARE_JBPF_HOOK(
+    mac_bsr_event,
+    struct mac_bsr_event_ctx ctx,
+    ctx,
+    HOOK_PROTO(
+        uint16_t rnti,
+        uint16_t frame,
+        uint8_t  slot,
+        uint8_t  bsr_type,
+        uint32_t estimated_bytes,
+        uint8_t  lcg_id
+    ),
+    HOOK_ASSIGN(
+        ctx.data            = 0;
+        ctx.data_end        = 0;
+        ctx.meta_data       = rdtsc_oai();
+        ctx.rnti            = rnti;
+        ctx.frame           = frame;
+        ctx.slot            = slot;
+        ctx.bsr_type        = bsr_type;
+        ctx.estimated_bytes = estimated_bytes;
+        ctx.lcg_id          = lcg_id;
+    )
+)
+
+DEFINE_JBPF_HOOK(mac_bsr_event)
+
+#endif /* JBPF_HOOK */
+
 //#define SRS_IND_DEBUG
 
 /* \brief Get the number of UL TDAs that could be used in slot, reachable
@@ -598,6 +726,36 @@ static int nr_process_mac_pdu(instance_t module_idP,
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_short_bsr((NR_BSR_SHORT *)ce_ptr);
         sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "SHORT BSR at %4d.%2d, est buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
+#if defined(JBPF_HOOK)
+        if (!jbpf_ulsch_thread_registered) {
+          jbpf_register_thread();
+          jbpf_ulsch_thread_registered = 1;
+        }
+        /*
+         * ── JBPF Hook 호출: Short BSR 수신 ──────────────────────
+         *
+         * Short BSR 구조 (NR_BSR_SHORT):
+         *   [  LcgID(3비트)  |  Buffer_size(5비트)  ]
+         *
+         * LcgID: 어떤 논리 채널 그룹의 버퍼를 보고하는지 (0~7)
+         * Buffer_size: 5비트 인덱스 → 38.321 Table 6.1.3.1-1 조회
+         *   0 = 0 bytes (no data)
+         *   1 = 10 bytes
+         *   ...
+         *   31 = ≥ 150000 bytes
+         *
+         * ((NR_BSR_SHORT *)ce_ptr)->LcgID: BSR의 LCG ID 필드 접근
+         * 캐스팅 이유: ce_ptr는 void* 이므로 구조체로 해석해야 함
+         * ─────────────────────────────────────────────────────── */
+        hook_mac_bsr_event(
+            UE->rnti,
+            (uint16_t)frameP,
+            (uint8_t)slot,
+            0,   /* bsr_type = 0: Short BSR */
+            (uint32_t)sched_ctrl->estimated_ul_buffer,
+            (uint8_t)((NR_BSR_SHORT *)ce_ptr)->LcgID
+        );
+#endif /* JBPF_HOOK */
         break;
 
       case UL_SCH_LCID_L_TRUNCATED_BSR:
@@ -607,6 +765,33 @@ static int nr_process_mac_pdu(instance_t module_idP,
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_long_bsr((NR_BSR_LONG *)ce_ptr);
         sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "LONG BSR at %4d.%2d, estim buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
+#if defined(JBPF_HOOK)
+        if (!jbpf_ulsch_thread_registered) {
+          jbpf_register_thread();
+          jbpf_ulsch_thread_registered = 1;
+        }
+        /*
+         * ── JBPF Hook 호출: Long BSR 수신 ───────────────────────
+         *
+         * Long BSR 구조 (NR_BSR_LONG):
+         *   [LcgID7..LcgID0 (8비트)] [Buf_size for each active LCG]
+         *
+         * 활성화된 LCG가 많을수록 PDU 크기가 커진다.
+         * lcg_id = 0xFF: Long BSR은 여러 LCG를 포함하므로
+         *   단일 LCG ID가 없음을 표시.
+         *   codelet에서 0xFF를 보면 "Long BSR"임을 알 수 있다.
+         *
+         * estimated_ul_buffer: 모든 활성 LCG의 합산 추정값
+         * ─────────────────────────────────────────────────────── */
+        hook_mac_bsr_event(
+            UE->rnti,
+            (uint16_t)frameP,
+            (uint8_t)slot,
+            1,    /* bsr_type = 1: Long BSR */
+            (uint32_t)sched_ctrl->estimated_ul_buffer,
+            0xFF  /* lcg_id = 0xFF: 여러 LCG 포함 */
+        );
+#endif /* JBPF_HOOK */
         break;
 
       case UL_SCH_LCID_PADDING:
@@ -1902,6 +2087,41 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   // signal new allocation
   DevAssert(new_sched.time_domain_allocation == tda);
   post_process_ulsch(nrmac, pp_pusch, UE, &new_sched);
+
+#if defined(JBPF_HOOK)
+  if (!jbpf_ulsch_thread_registered) {
+    jbpf_register_thread();
+    jbpf_ulsch_thread_registered = 1;
+  }
+  /*
+   * ── JBPF Hook 호출: UL 재전송(Retransmission) PRB 할당 ──────
+   *
+   * UL 재전송 경로: UE의 PUSCH 전송이 gNB에서 CRC 실패/NACK으로
+   * 판정되어 동일한 데이터를 다시 전송하도록 grant를 주는 경우.
+   *
+   * new_sched: 재전송용 스케줄 정보.
+   *   .rbStart / .rbSize: 재전송에 배정된 PRB 범위
+   *   .mcs: 재전송 MCS (원래 MCS 또는 조정값)
+   *   .ul_harq_pid: 재전송 중인 HARQ 프로세스 ID
+   *
+   * buffer_bytes = 0 전달: 재전송은 새 데이터가 아니므로
+   *   RLC 버퍼 크기는 의미 없음 (codelet에서 is_retx=1 확인)
+   * ──────────────────────────────────────────────────────────── */
+  hook_mac_ul_prb_alloc(
+      UE->rnti,
+      (uint16_t)frame,
+      (uint8_t)slot,
+      new_sched.rbStart,
+      new_sched.rbSize,
+      new_sched.mcs,
+      new_sched.tb_size,
+      0,              /* buffer_bytes: 재전송은 새 데이터 없음 */
+      0,              /* sched_ul_bytes: 재전송 시 불필요 */
+      (uint8_t)new_sched.ul_harq_pid,
+      1  /* is_retx = 1: 재전송 */
+  );
+#endif /* JBPF_HOOK */
+
   LOG_D(NR_MAC,
         "%4d.%2d Allocate UL retransmission RNTI %04x sched %4d.%2d (%d RBs)\n",
         frame,
@@ -2289,6 +2509,46 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
 
     /* save allocation to FAPI structures */
     post_process_ulsch(nrmac, pp_pusch, iterator->UE, &sched);
+
+#if defined(JBPF_HOOK)
+    if (!jbpf_ulsch_thread_registered) {
+      jbpf_register_thread();
+      jbpf_ulsch_thread_registered = 1;
+    }
+    /*
+     * ── JBPF Hook 호출: UL 신규 전송 PRB 할당 ──────────────────
+     *
+     * post_process_ulsch() 직후이므로 모든 스케줄링 값이 확정됨.
+     *
+     * sched.rbStart:
+     *   BWP 시작 기준 상대 PRB 인덱스.
+     *   실제 물리 PRB = bi.bwpStart + sched.rbStart
+     *
+     * B (= cmax(estimated_ul_buffer - sched_ul_bytes, 0)):
+     *   이 UE의 실제 스케줄링 대상 바이트 수.
+     *   estimated_ul_buffer: BSR로 추정한 UE의 총 UL 버퍼
+     *   sched_ul_bytes: 이미 그랜트된 바이트 (HARQ 재전송 포함)
+     *
+     * sched.ul_harq_pid = -1 은 신규 전송을 의미한다.
+     *   실제 HARQ PID는 post_process_ulsch 내부에서 배정됨.
+     *   이 시점에서 ul_harq_processes 배열을 직접 조회 가능하지만,
+     *   복잡성을 줄이기 위해 sched.ul_harq_pid 값을 그대로 전달.
+     *   (codelet에서 -1이면 신규임을 알 수 있음)
+     * ──────────────────────────────────────────────────────────── */
+    hook_mac_ul_prb_alloc(
+        iterator->UE->rnti,
+        (uint16_t)frame,
+        (uint8_t)slot,
+        sched.rbStart,
+        sched.rbSize,
+        sched.mcs,
+        sched.tb_size,
+        (int32_t)B,                              /* UL 버퍼 잔량 */
+        (int32_t)sched_ctrl->sched_ul_bytes,     /* 기존 예약 바이트 */
+        (uint8_t)(sched.ul_harq_pid & 0xFF),     /* -1이면 신규 (0xFF로 표현) */
+        0  /* is_retx = 0: 신규 전송 */
+    );
+#endif /* JBPF_HOOK */
 
     n_rb_sched[beam.idx] -= sched.rbSize;
     for (int rb = bi.bwpStart; rb < sched.rbSize; rb++)
