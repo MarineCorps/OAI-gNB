@@ -32,6 +32,82 @@
 #include "common/ran_context.h"
 #include "common/utils/nr/nr_common.h"
 #include "nfapi/oai_integration/vendor_ext.h"
+
+/*
+ * ──────────────────────────────────────────────────────────────
+ * JBPF Hook: mac_sr_detect
+ * ──────────────────────────────────────────────────────────────
+ * UE가 PUCCH를 통해 SR(Scheduling Request)을 전송했고,
+ * gNB가 이를 유효하게 수신했을 때 호출된다.
+ *
+ * 전체 UL 스케줄링 시그널링 흐름:
+ *
+ *   1. UE에 UL 데이터 발생 (애플리케이션 계층)
+ *         ↓
+ *   2. UE가 SR 전송 (PUCCH Format 0/1, 1비트)
+ *         ↓ [hook: mac_sr_detect]
+ *   3. gNB가 SR 감지 → sched_ctrl->SR = true 설정
+ *         ↓
+ *   4. 다음 슬롯 UL 스케줄러가 SR UE를 우선 처리
+ *         ↓
+ *   5. gNB → UE: DCI (PDCCH, UL grant 포함)
+ *         ↓ [hook: mac_ul_prb_alloc]
+ *   6. UE → gNB: PUSCH (BSR MAC CE + 데이터)
+ *         ↓ [hook: mac_bsr_event]
+ *   7. 스케줄러가 BSR 기반으로 계속 PRB 할당
+ *
+ * SR은 "트리거" 역할이고, BSR은 "정량적 요청" 역할이다.
+ * ──────────────────────────────────────────────────────────────
+ */
+#if defined(JBPF_HOOK)
+#include "jbpf.h"
+#include "jbpf_hook.h"
+#include "jbpf_defs.h"
+#include "common/utils/time_meas.h"
+#include "openair2/JBPF/mac_scheduler_hooks.h"
+
+/* SDAP/PDCP와 동일한 패턴: hook 호출 스레드 자동 등록 */
+static __thread int jbpf_uci_thread_registered = 0;
+
+/*
+ * DECLARE_JBPF_HOOK: hook_mac_sr_detect() 함수 생성
+ *
+ * 파라미터:
+ *   rnti        : SR을 보낸 UE의 RNTI
+ *   frame/slot  : SR 수신 프레임/슬롯
+ *   sr_detected : 항상 1 (이 hook은 유효한 SR만 호출)
+ *   ul_cqi      : PUCCH 수신 품질 (0~255, 148≥SNR 10dB)
+ *
+ * ul_cqi 해석:
+ *   value × 0.5dB - 64dB = actual SNR (근사)
+ *   148 × 0.5 - 64 = 10dB
+ */
+DECLARE_JBPF_HOOK(
+    mac_sr_detect,
+    struct mac_sr_detect_ctx ctx,
+    ctx,
+    HOOK_PROTO(
+        uint16_t rnti,
+        uint16_t frame,
+        uint8_t  slot,
+        uint8_t  sr_detected,
+        uint8_t  ul_cqi
+    ),
+    HOOK_ASSIGN(
+        ctx.data        = 0;
+        ctx.data_end    = 0;
+        ctx.meta_data   = rdtsc_oai();
+        ctx.rnti        = rnti;
+        ctx.frame       = frame;
+        ctx.slot        = slot;
+        ctx.sr_detected = sr_detected;
+        ctx.ul_cqi      = ul_cqi;
+    )
+)
+
+DEFINE_JBPF_HOOK(mac_sr_detect)
+
+#endif /* JBPF_HOOK */
 static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot, const NR_sched_pucch_t *pucch, NR_UE_info_t* UE)
 {
 
@@ -962,6 +1038,41 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
       // SR detected with SNR >= 10dB
       sched_ctrl->SR |= true;
       LOG_D(NR_MAC, "SR UE %04x ul_cqi %d\n", uci_01->rnti, uci_01->ul_cqi);
+
+#if defined(JBPF_HOOK)
+      if (!jbpf_uci_thread_registered) {
+        jbpf_register_thread();
+        jbpf_uci_thread_registered = 1;
+      }
+      /*
+       * ── JBPF Hook 호출: SR 감지 ──────────────────────────────
+       *
+       * 이 시점은 다음 조건이 모두 만족된 후다:
+       *   1. UE가 PUCCH Format 0/1으로 SR을 전송
+       *   2. sr_indication == 1 (SR 비트가 1)
+       *   3. sr_confidence_level == 0 (신뢰도 높음)
+       *   4. ul_cqi >= 148 (SNR ≥ 10dB, 좋은 수신 품질)
+       *
+       * uci_01->rnti:
+       *   UCI PDU에서 추출한 UE RNTI.
+       *   nfapi_nr_uci_pucch_pdu_format_0_1_t.rnti 필드.
+       *
+       * uci_01->ul_cqi:
+       *   PUCCH 수신 시 측정된 상향링크 채널 품질 지표.
+       *   이 값이 높을수록 UE가 gNB 근처에 있거나 좋은 채널 조건.
+       *
+       * pduBitmap & 0x1:
+       *   LSB(bit 0)가 SR 정보 포함 여부를 나타낸다.
+       *   bit 0 = SR, bit 1 = HARQ ACK/NACK
+       * ─────────────────────────────────────────────────────── */
+      hook_mac_sr_detect(
+          uci_01->rnti,
+          (uint16_t)frame,
+          (uint8_t)slot,
+          1,                   /* sr_detected = 1 (항상 유효한 SR만 도달) */
+          uci_01->ul_cqi       /* PUCCH 수신 품질 */
+      );
+#endif /* JBPF_HOOK */
     }
 
   }

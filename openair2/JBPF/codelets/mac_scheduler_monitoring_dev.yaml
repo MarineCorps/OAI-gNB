@@ -1,0 +1,104 @@
+# ================================================================
+# mac_scheduler_monitoring_dev.yaml
+# ================================================================
+#
+# MAC 스케줄러 모니터링 Codeletset 정의 (개발/로컬 경로 버전)
+#
+# 이 파일은 4개의 MAC 스케줄러 codelets를 하나의 codeletset으로
+# 묶어 gNB에 로드한다.
+#
+# 사용법:
+#   # 1. Codelets 컴파일
+#   cd /home/inho/OAI-gNB/openair2/JBPF/codelets
+#   make mac_dl_prb_stats.o mac_ul_prb_stats.o mac_bsr_monitor.o mac_sr_monitor.o
+#
+#   # 2. gNB 실행 (-DJBPF_HOOK 빌드 옵션 필요)
+#   # cmake .. -DJBPF_HOOK=ON
+#
+#   # 3. Codeletset 로드
+#   jbpf_lcm_cli -l -a /tmp/jbpf/jbpf_oai_gnb -c mac_scheduler_monitoring_dev.yaml
+#
+#   # 4. 데이터 수신 (별도 userspace 앱에서)
+#   # stream_id로 ringbuf 데이터를 읽어서 파싱
+#
+# Stream ID 규칙:
+#   - 32자리 16진수 문자열 (16바이트)
+#   - Codelet별로 고유해야 함
+#   - Userspace 앱에서 동일한 ID로 구독해야 데이터를 받을 수 있음
+# ================================================================
+
+codelet_descriptor:
+
+  # ────────────────────────────────────────────────────────────
+  # Codelet 1: DL PRB 점유율 수집
+  #
+  # hook_name: mac_dl_prb_alloc
+  #   → gNB_scheduler_dlsch.c에서 DL PRB 할당 후 호출되는 hook
+  #
+  # priority: 1
+  #   낮은 숫자 = 높은 우선순위 (같은 hook에 여러 codelet이 있을 때 실행 순서)
+  #
+  # out_io_channel:
+  #   name: mac_dl_prb_stats.c에서 jbpf_ringbuf_map()으로 선언한 맵 이름
+  #   stream_id: 이 채널의 고유 ID (userspace에서 구독할 때 사용)
+  # ────────────────────────────────────────────────────────────
+  - codelet_name: mac_dl_prb_stats
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_dl_prb_stats.o
+    hook_name: mac_dl_prb_alloc
+    out_io_channel:
+      - name: dl_prb_output
+        stream_id: 'AABB0011223344556677889900000001'
+    priority: 1
+
+  # ────────────────────────────────────────────────────────────
+  # Codelet 2: UL PRB 점유율 수집
+  #
+  # hook_name: mac_ul_prb_alloc
+  #   → gNB_scheduler_ulsch.c에서 UL PRB 할당 후 호출되는 hook
+  # ────────────────────────────────────────────────────────────
+  - codelet_name: mac_ul_prb_stats
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_ul_prb_stats.o
+    hook_name: mac_ul_prb_alloc
+    out_io_channel:
+      - name: ul_prb_output
+        stream_id: 'AABB0011223344556677889900000002'
+    priority: 1
+
+  # ────────────────────────────────────────────────────────────
+  # Codelet 3: BSR 모니터링
+  #
+  # hook_name: mac_bsr_event
+  #   → gNB_scheduler_ulsch.c에서 Short/Long BSR 수신 후 호출
+  #
+  # BSR 수신 빈도는 UL 트래픽 발생 패턴을 보여준다:
+  #   - BSR 빈발 + 큰 estimated_bytes = 활발한 UL 트래픽
+  #   - BSR 드묾 + 작은 estimated_bytes = 낮은 UL 활동
+  # ────────────────────────────────────────────────────────────
+  - codelet_name: mac_bsr_monitor
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_bsr_monitor.o
+    hook_name: mac_bsr_event
+    out_io_channel:
+      - name: bsr_output
+        stream_id: 'AABB0011223344556677889900000003'
+    priority: 1
+
+  # ────────────────────────────────────────────────────────────
+  # Codelet 4: SR 감지 모니터링
+  #
+  # hook_name: mac_sr_detect
+  #   → gNB_scheduler_uci.c에서 유효한 SR 감지 후 호출
+  #
+  # SR 감지는 UL 데이터 흐름의 시작점이다:
+  #   SR 감지 → UL grant → PUSCH → BSR + 데이터 → PRB 할당
+  # ────────────────────────────────────────────────────────────
+  - codelet_name: mac_sr_monitor
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_sr_monitor.o
+    hook_name: mac_sr_detect
+    out_io_channel:
+      - name: sr_output
+        stream_id: 'AABB0011223344556677889900000004'
+    priority: 1
+
+# codeletset_id: 이 codeletset의 고유 이름
+# 언로드 시에도 이 ID를 사용: jbpf_lcm_cli -u -c <yaml>
+codeletset_id: mac_scheduler_monitoring_dev
