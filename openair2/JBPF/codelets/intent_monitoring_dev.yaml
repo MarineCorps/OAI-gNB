@@ -1,0 +1,44 @@
+# JBPF Codeletset: 6G Demand Packet Monitoring (Development)
+#
+# 이 파일만으로 intent_parser codelet을 단독으로 로드할 수 있다.
+# header_parser와 동일한 pdcp_uplink hook에 연결되며,
+# 두 codelet은 동시에 로드해도 충돌하지 않는다 (독립적으로 실행됨).
+#
+# 프로토콜: 6G Demand API (demand6_t, 16 bytes)
+#   - protocol_id: 0x36474E49 ('6GNI')
+#   - UDP dst_port: 48888
+#   - 구 API (intent_pkt_t, 40 bytes, '0x494E5450' 'INTP')에서 변경됨
+#
+# 사용법:
+#   # 1. codelet 빌드
+#   cd /home/inho/OAI-gNB/openair2/JBPF/codelets
+#   make intent_parser.o
+#
+#   # 2. 로드 (gNB 실행 중에 hot-reload)
+#   sudo /home/inho/OAI-gNB/third_party/jbpf/out/bin/jbpf_lcm_cli -l \
+#       -a /tmp/jbpf/jbpf_oai_gnb \
+#       -c /home/inho/OAI-gNB/openair2/JBPF/codelets/intent_monitoring_dev.yaml
+#
+#   # 3. 언로드
+#   sudo /home/inho/OAI-gNB/third_party/jbpf/out/bin/jbpf_lcm_cli -u \
+#       -a /tmp/jbpf/jbpf_oai_gnb \
+#       -c /home/inho/OAI-gNB/openair2/JBPF/codelets/intent_monitoring_dev.yaml
+#
+# Stream ID 체계:
+#   SDAP/PDCP 그룹: id[0] = 0x00  (예: 0x00...01, 0x00...02, 0x00...03)
+#   MAC 스케줄러:   id[0] = 0xAA  (예: 0xAA...01 ~ 0xAA...06)
+#   Demand 그룹:    id[0] = 0xBB  (예: 0xBB...01)
+#
+# nr-softmodem.c의 is_intent_stream() 함수가
+# id[0]==0xBB && id[15]==0x01 로 이 스트림을 식별한다.
+
+codelet_descriptor:
+  - codelet_name: intent_parser
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/intent_parser.o
+    hook_name: pdcp_uplink
+    out_io_channel:
+      - name: intent_output
+        stream_id: 'BB112233445566778899AABBCCDDEE01'
+    priority: 4
+
+codeletset_id: intent_monitoring_dev
