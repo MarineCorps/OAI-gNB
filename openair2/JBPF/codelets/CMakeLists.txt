@@ -61,18 +61,37 @@ endfunction()
 #   - 목록이 바뀌면 CMake 재실행이 필요하므로 CONFIGURE_DEPENDS 대신
 #     파일을 configure 의존성에 명시적으로 등록한다.
 #
+# 파싱 방식 — 주석을 *제거*하지 않고 식별자를 *추출*한다:
+#
+#   처음에는 string(REGEX REPLACE "#.*$" "" line) 으로 주석을 지웠는데,
+#   CMake 정규식은 바이트 단위로 동작하고 '.' 이 UTF-8 멀티바이트를
+#   제대로 먹지 못한다. 그래서 한글 주석 줄에서 매칭이 첫 한글 바이트에서
+#   끊기고, 남은 ASCII 조각("Makefile", "(hook: sdap_uplink)" 등)이
+#   코드렛 이름으로 들어가 add_custom_target 이 줄줄이 실패했다.
+#
+#   지금은 두 단계 모두 ASCII 식별자만 다룬다:
+#     1) file(STRINGS ... REGEX "^[A-Za-z0-9_]+") — '#' 로 시작하는 줄과
+#        빈 줄을 애초에 읽지 않는다
+#     2) string(REGEX MATCH "^[A-Za-z0-9_]+") — 줄 앞의 식별자만 뽑아낸다.
+#        뒤에 무슨 바이트가 붙어 있든(인라인 한글 주석 포함) 영향 없다.
+#
 set(CODELET_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/codelets.list)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CODELET_LIST_FILE})
 
-file(STRINGS ${CODELET_LIST_FILE} CODELET_LINES)
+file(STRINGS ${CODELET_LIST_FILE} CODELET_LINES REGEX "^[A-Za-z0-9_]+")
 set(JBPF_CODELETS "")
 foreach(line ${CODELET_LINES})
-    string(REGEX REPLACE "#.*$" "" line "${line}")   # 인라인 주석 제거
-    string(STRIP "${line}" line)
-    if(NOT line STREQUAL "")
-        list(APPEND JBPF_CODELETS ${line})
+    string(REGEX MATCH "^[A-Za-z0-9_]+" codelet_name "${line}")
+    if(codelet_name)
+        list(APPEND JBPF_CODELETS ${codelet_name})
     endif()
 endforeach()
+
+list(LENGTH JBPF_CODELETS JBPF_CODELET_COUNT)
+if(JBPF_CODELET_COUNT EQUAL 0)
+    message(FATAL_ERROR
+        "codelets.list 에서 코드렛을 하나도 읽지 못했다: ${CODELET_LIST_FILE}")
+endif()
 
 message(STATUS "JBPF codelets from codelets.list: ${JBPF_CODELETS}")
 
