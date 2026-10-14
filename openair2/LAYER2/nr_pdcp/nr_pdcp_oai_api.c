@@ -93,45 +93,13 @@
  static __thread int jbpf_pdcp_thread_registered = 0;
 
 /*
- * ============================================================
- * PDCP Uplink Context 구조체 정의
- * ============================================================
+ * PDCP Uplink Context 구조체
  *
- * 이 구조체는 Application → Codelet으로 전달되는 데이터 컨테이너입니다.
- *
- * eBPF Verifier 필수 필드:
- * - data, data_end: Codelet에서 접근할 메모리 영역의 시작/끝 포인터
- *   (Verifier가 경계 검사를 수행하여 메모리 안전성 보장)
- * - meta_data: 타임스탬프 등 메타정보 저장
- *
- * 5G 네트워크 메타데이터:
- * - ue_id: UE 식별자 (RNTI)
- * - pdusession_id: PDU Session 식별자
- * - rb_id: Radio Bearer 식별자 (DRB)
- * - has_sdap_rx: SDAP 헤더 존재 여부 (1=있음, 0=없음)
- * - qfi: QoS Flow Identifier (0-63, SDAP 헤더에서 추출)
- *
- * 패킷 크기 정보:
- * - total_size: 전체 크기 (SDAP 헤더 포함)
- * - ip_size: IP 패킷 크기 (SDAP 헤더 제외)
+ * 정의는 openair2/JBPF/pdcp_hook_ctx.h 에 있다. 코드렛(intent_parser.c,
+ * header_parser.c)이 같은 헤더를 include 하므로 양쪽 레이아웃이 구조적으로
+ * 어긋날 수 없다. 필드를 추가하려면 그 헤더만 고치면 된다.
  */
-struct pdcp_uplink_ctx {
-    /* eBPF Verifier 필수 필드 */
-    uint64_t data;          // IP 패킷 시작 포인터 (SDAP 헤더 이후)
-    uint64_t data_end;      // 패킷 끝 포인터 (경계 검사용)
-    uint64_t meta_data;     // 타임스탬프 (rdtsc_oai)
-
-    /* 5G Network 메타데이터 */
-    uint32_t ue_id;         // UE 식별자 (RNTI)
-    uint8_t pdusession_id;  // PDU Session ID
-    uint8_t rb_id;          // Radio Bearer ID (DRB)
-    uint8_t has_sdap_rx;    // SDAP RX 헤더 존재 여부 (1=존재, 0=없음)
-    uint8_t qfi;            // QoS Flow Identifier (0-63)
-
-    /* 패킷 크기 정보 */
-    uint32_t total_size;    // 전체 패킷 크기 (SDAP 헤더 포함)
-    uint32_t ip_size;       // IP 패킷 크기 (SDAP 헤더 제외)
-};
+#include "openair2/JBPF/pdcp_hook_ctx.h"
 
 /*
  * ============================================================
@@ -275,6 +243,7 @@ static uint64_t pdcp_optmask;
 
 static ngran_node_t node_type;
 
+// SRB, DRB 구분
 nr_pdcp_entity_t *nr_pdcp_get_rb(nr_pdcp_ue_t *ue, int rb_id, bool srb_flag)
 {
   nr_pdcp_entity_t *rb;
@@ -326,12 +295,14 @@ typedef struct {
 
 #define RLC_DATA_REQ_QUEUE_SIZE 10000
 
+
+// RLC 데이터 요청을 위한 Circular Queue 구조체 정의
 typedef struct {
-  rlc_data_req_queue_item q[RLC_DATA_REQ_QUEUE_SIZE];
-  volatile int start;
-  volatile int length;
-  pthread_mutex_t m;
-  pthread_cond_t c;
+  rlc_data_req_queue_item q[RLC_DATA_REQ_QUEUE_SIZE]; // 10000개의 슬롯
+  volatile int start; // Consumer가 읽을 위치 (0부터 시작)
+  volatile int length; // 현재 큐에 있는 아이템 수 (0에서 RLC_DATA_REQ_QUEUE_SIZE까지)
+  pthread_mutex_t m; // Mutex for synchronizing access to the queue
+  pthread_cond_t c; // 조건 변수
 } rlc_data_req_queue;
 
 static rlc_data_req_queue q;
@@ -341,12 +312,12 @@ static void *rlc_data_req_thread(void *_)
   int i;
 
   pthread_setname_np(pthread_self(), "RLC queue");
-  while (1) {
+  while (1) {  // 무한 루프: 큐에서 아이템이 들어올 때까지 대기하고 처리
     if (pthread_mutex_lock(&q.m) != 0) abort();
     while (q.length == 0)
-      if (pthread_cond_wait(&q.c, &q.m) != 0) abort();
+      if (pthread_cond_wait(&q.c, &q.m) != 0) abort(); // Data가 들어올 때까지 대기 (락 해제 후 대기, 깨어나면 락 재획득)
     i = q.start;
-    if (pthread_mutex_unlock(&q.m) != 0) abort();
+    if (pthread_mutex_unlock(&q.m) != 0) abort(); // 락 해제 후 RLC 호출
 
     nr_rlc_data_req(&q.q[i].ctxt_pP,
                     q.q[i].srb_flagP,
@@ -390,13 +361,15 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   int logged = 0;
 
   if (pthread_mutex_lock(&q.m) != 0) abort();
+  // 큐가 꽉 찼으면 공간이 생길 때까지 대시
   while (q.length == RLC_DATA_REQ_QUEUE_SIZE) {
     if (!logged) {
       logged = 1;
       LOG_W(PDCP, "%s: rlc_data_req queue is full\n", __FUNCTION__);
     }
-    if (pthread_cond_wait(&q.c, &q.m) != 0) abort();
+    if (pthread_cond_wait(&q.c, &q.m) != 0) abort(); // 락 해제 후 조건 변수 대기 (큐에 공간이 생길 때까지)
   }
+
 
   i = (q.start + q.length) % RLC_DATA_REQ_QUEUE_SIZE;
   q.length++;
@@ -409,6 +382,7 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   q.q[i].sdu_sizeP  = sdu_sizeP;
   q.q[i].sdu_pP     = sdu_pP;
 
+  // Consumer thread 깨우기, Lock 해제
   if (pthread_cond_signal(&q.c) != 0) abort();
   if (pthread_mutex_unlock(&q.m) != 0) abort();
 }
@@ -843,19 +817,19 @@ void nr_pdcp_add_drb(int is_gnb,
     }
 
     // add PDCP entity
-    nr_pdcp_entity_t *pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM,
-                                                    is_gnb,
-                                                    sdap->drb_id,
-                                                    sdap->pdusession_id,
-                                                    (sdap->role & (SDAP_UL_RX | SDAP_DL_RX)) != 0,
+    nr_pdcp_entity_t *pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM,  // Entity type
+                                                    is_gnb, // gNB 측인지, UE 측인지
+                                                    sdap->drb_id, // Radio Bearer ID
+                                                    sdap->pdusession_id, // PDU Session ID
+                                                    (sdap->role & (SDAP_UL_RX | SDAP_DL_RX)) != 0, 
                                                     (sdap->role & (SDAP_UL_TX | SDAP_DL_TX)) != 0,
-                                                    deliver_sdu_drb,
-                                                    ue,
-                                                    is_gnb ? deliver_pdu_drb_gnb : deliver_pdu_drb_ue,
-                                                    ue,
-                                                    sn_size_dl,
-                                                    t_reordering,
-                                                    discard_timer,
+                                                    deliver_sdu_drb, // UL SDU 전달 콜백 함수, DRB는 SDAP 헤더가 있으므로 deliver_sdu_drb 사용, DRB의 경우 SDAP 헤더에 QFI가 있어서 그걸 전달하기 위해서
+                                                    ue, // 콜백에 전달할 UE 포인터
+                                                    is_gnb ? deliver_pdu_drb_gnb : deliver_pdu_drb_ue, // DL PDU 전달 콜백 함수, gNB이면 gNB용 함수, UE이면 UE용 함수
+                                                    ue, // 콜백에 전달할 UE 포인터 (DL도 UE 포인터 전달, gNB인 경우에도 UE 포인터 전달, deliver_pdu_drb_gnb 함수에서 gNB/UE 구분해서 처리)
+                                                    sn_size_dl, // Sequence Number 크기 (DL과 UL이 같다고 가정)
+                                                    t_reordering, // t-Reordering  Timer 값 (ms 단위, infinity는 -1)
+                                                    discard_timer, // 폐기 타이머 값 (ms 단위, infinity는 -1)
                                                     &actual_security_parameters);
     nr_pdcp_ue_add_drb_pdcp_entity(ue, sdap->drb_id, pdcp_drb);
 

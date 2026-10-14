@@ -28,17 +28,26 @@
 #   SDAP/PDCP 그룹: id[0] = 0x00  (예: 0x00...01, 0x00...02, 0x00...03)
 #   MAC 스케줄러:   id[0] = 0xAA  (예: 0xAA...01 ~ 0xAA...06)
 #   Demand 그룹:    id[0] = 0xBB  (예: 0xBB...01)
+#   정책 그룹:      id[0] = 0xCC  (예: 0xCC...01 = QoS weight)
 #
 # nr-softmodem.c의 is_intent_stream() 함수가
 # id[0]==0xBB && id[15]==0x01 로 이 스트림을 식별한다.
+# is_weight_stream() 함수가
+# id[0]==0xCC && id[15]==0x01 로 weight 스트림을 식별한다.
 
 codelet_descriptor:
   - codelet_name: intent_parser
     codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/intent_parser.o
     hook_name: pdcp_uplink
     out_io_channel:
+      # intent_output: 5초 윈도우 통계 (디버깅/관찰용, 느림)
       - name: intent_output
         stream_id: 'BB112233445566778899AABBCCDDEE01'
+      # weight_output: QoS 정책 즉시 적용 채널 (코드릿 → 스케줄러)
+      # demand6 한 개당 한 번 push → 평균 4 msg/sec (heartbeat 250ms 기준)
+      # 변경 시 nr-softmodem.c::is_weight_stream() 와 동기화 필수.
+      - name: weight_output
+        stream_id: 'CC112233445566778899AABBCCDDEE01'
     priority: 4
 
 codeletset_id: intent_monitoring_dev

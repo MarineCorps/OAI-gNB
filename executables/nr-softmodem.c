@@ -42,6 +42,23 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "openair2/JBPF/codelets/common.h"  // struct Packet5Tuple 정의
 
 /*
+ * QoS weight 시스템 헤더 두 개:
+ *   qos_weight_msg.h : 코드릿이 push 한 WeightUpdate wire format
+ *   qos_weight.h     : 호스트 측 테이블 API (qos_weight_apply / lookup)
+ *
+ * 이 두 헤더는 짝으로 다닌다. wire 메시지를 받아서 host 테이블에 반영.
+ */
+#include "openair2/JBPF/qos_weight_msg.h"
+#include "openair2/JBPF/qos_weight.h"
+
+/*
+ * f1ap_ids.h 는 du_get_f1_ue_data() / du_exists_f1_ue_data() 를 노출.
+ * 이 두 함수가 *MAC RNTI → CU-UE-ID* 매핑 (DU side registry) 을 들고 있어서
+ * codelet 에서 받은 CU-UE-ID 로 MAC RNTI 를 역추적할 때 필요하다.
+ */
+#include "openair2/F1AP/f1ap_ids.h"
+
+/*
  * Codelet 구조체 정의
  * 주의: 이 구조체들은 Codelet 파일의 정의와 정확히 일치해야 합니다!
  *
@@ -156,6 +173,88 @@ struct sr_report {
     uint32_t sr_count;
     uint32_t avg_ul_cqi;
 };
+
+/* mac_sr_packet_dump.c: struct sr_packet_frame와 동일
+ *
+ * 메모리 레이아웃 (24 bytes, 8-byte 정렬):
+ *   [0..7]   ts_cycles    (uint64_t) - CPU rdtsc 타임스탬프
+ *   [8..9]   rnti         (uint16_t) - UE 식별자
+ *   [10..11] frame        (uint16_t) - 10ms 프레임 번호 (0~1023)
+ *   [12]     slot         (uint8_t)  - 슬롯 번호 (SCS=30kHz → 0~19)
+ *   [13]     sr_detected  (uint8_t)  - SR 유효 여부 (항상 1)
+ *   [14]     ul_cqi       (uint8_t)  - PUCCH 수신 품질 (148=SNR 10dB)
+ *   [15..19] _pad[5]      (uint8_t×5)- 정렬 패딩
+ *   [20..23] seq_num      (uint32_t) - 전역 이벤트 시퀀스 번호 (0부터)
+ */
+struct sr_packet_frame {
+    uint64_t ts_cycles;
+    uint16_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint8_t  sr_detected;
+    uint8_t  ul_cqi;
+    uint8_t  _pad[5];
+    uint32_t seq_num;
+};
+
+/* mac_bsr_packet_dump.c: struct bsr_packet_frame와 동일
+ *
+ * 메모리 레이아웃 (24 bytes, 8-byte 정렬):
+ *   [0..7]   ts_cycles        (uint64_t) - CPU rdtsc 타임스탬프
+ *   [8..9]   rnti             (uint16_t) - UE 식별자
+ *   [10..11] frame            (uint16_t) - 10ms 프레임 번호
+ *   [12]     slot             (uint8_t)  - 슬롯 번호
+ *   [13]     bsr_type         (uint8_t)  - 0=Short BSR, 1=Long BSR
+ *   [14]     lcg_id           (uint8_t)  - LCG ID (Long BSR: 0xFF)
+ *   [15]     _pad             (uint8_t)  - 정렬 패딩
+ *   [16..19] estimated_bytes  (uint32_t) - 추정 UL 버퍼 크기 (바이트)
+ *   [20..23] seq_num          (uint32_t) - 전역 이벤트 시퀀스 번호
+ *  * SR / BSR 패킷 덤프 핸들러
+ *
+ * mac_sr_packet_dump.c / mac_bsr_packet_dump.c 코드렛이
+ * jbpf_ringbuf_output()으로 전송한 데이터를 수신하여
+ * nr-softmodem 터미널에 ASCII 패킷 덤프 형태로 표시한다.
+ *
+ * 출력 형식 (Wireshark 스타일):
+ *   +---(헤더)---+
+ *   | FIELD TABLE |  ← 각 필드: 오프셋, 이름, Hex, Dec, 설명
+ *   +---(구분)---+
+ *   | HEX DUMP  |  ← 원시 바이트 (16진수 + ASCII)
+ *   +-----------+
+ *
+ * 학습 포인트:
+ *   1. 포인터 캐스팅: void* → 구조체 포인터 (안전한 캐스팅 조건 이해)
+ *   2. 배열 접근: (uint8_t*)ptr로 구조체를 바이트 단위 접근
+ *   3. 비트 연산: SNR 계산, 출력 가능 ASCII 판단
+ *   4. 정수 산술: 부동소수 없이 소수점 표현 (×10 or ×100 스케일)
+ * ============================================================ */
+
+/*
+ * 출력 구조체 정의 (mac_sr_packet_dump.c의 sr_packet_frame과 동일해야 함)
+ *
+ * 메모리 레이아웃:
+ *   [0..7]  ts_cycles    (uint64_t, 8 bytes)
+ *   [8..9]  rnti         (uint16_t, 2 bytes)
+ *   [10..11] frame       (uint16_t, 2 bytes)
+ *   [12]    slot         (uint8_t)
+ *   [13]    sr_detected  (uint8_t)
+ *   [14]    ul_cqi       (uint8_t)
+ *   [15..19] _pad[5]     (uint8_t × 5)
+ *   [20..23] seq_num     (uint32_t, 4 bytes)
+ *   Total: 24 bytes
+ */
+struct bsr_packet_frame {
+    uint64_t ts_cycles;
+    uint16_t rnti;
+    uint16_t frame;
+    uint8_t  slot;
+    uint8_t  bsr_type;
+    uint8_t  lcg_id;
+    uint8_t  _pad;
+    uint32_t estimated_bytes;
+    uint32_t seq_num;
+};
+
 
 #endif
 #include "nr-softmodem.h"
@@ -687,6 +786,40 @@ static inline bool is_mac_sr_stream(const jbpf_io_stream_id_t* stream_id) {
     return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x04;
 }
 
+/* MAC 패킷 덤프 스트림 확인 (id[0]==0xAA, id[15]==0x05/0x06)
+ * mac_sr_packet_dump.c / mac_bsr_packet_dump.c 코드렛과 대응 */
+static inline bool is_mac_sr_dump_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x05;
+}
+
+static inline bool is_mac_bsr_dump_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xAA && stream_id->id[15] == 0x06;
+}
+
+/*
+ * Intent 그룹 스트림: id[0] = 0xBB
+ * intent_monitoring_dev.yaml의 stream_id 'BB112233...EE01'과 매핑
+ */
+static inline bool is_intent_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xBB && stream_id->id[15] == 0x01;
+}
+
+/*
+ * 정책 그룹 스트림: id[0] = 0xCC
+ *
+ * 0xCC...01 = QoS weight 즉시 적용 채널
+ *   - 코드릿 intent_parser.c 의 weight_output ringbuf 에서 발사
+ *   - 페이로드: struct WeightUpdate (8 바이트)
+ *   - 호스트 측 dispatch: qos_weight_apply() 호출
+ *
+ * YAML 매니페스트 (intent_monitoring_dev.yaml) 의
+ *   stream_id: 'CC112233445566778899AABBCCDDEE01'
+ * 과 정확히 매핑되어야 한다.
+ */
+static inline bool is_weight_stream(const jbpf_io_stream_id_t* stream_id) {
+    return stream_id->id[0] == 0xCC && stream_id->id[15] == 0x01;
+}
+
 /*
  * Packet Stats 처리 함수
  *
@@ -869,12 +1002,85 @@ static void handle_header_parser(struct Packet5Tuple* packet) {
     const char *proto_str = (packet->protocol == IPPROTO_TCP) ? "TCP" :
                             (packet->protocol == IPPROTO_UDP) ? "UDP" : "Other";
 
-    /* Codelet 대신 여기서 로그 출력 (Latency 정보 추가) */
-    LOG_I(GNB_APP, "[CODELET] %s %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u (UE=%u QFI=%u) Latency: %.2f us\n",
+    /* Codelet 대신 여기서 로그 출력 (Latency + pkt_count 정보 추가) */
+    LOG_I(GNB_APP, "[5-TUPLE] %s %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u"
+          " (UE=%u QFI=%u) pkts_5s=%llu latency=%.2fus\n",
           proto_str,
           s[0], s[1], s[2], s[3], packet->src_port,
           d[0], d[1], d[2], d[3], packet->dst_port,
-          packet->ue_id, packet->qfi, latency_us);
+          packet->ue_id, packet->qfi,
+          (unsigned long long)packet->pkt_count, latency_us);
+}
+
+/* ============================================================
+ * 6G Demand Codelet 핸들러
+ * ============================================================
+ *
+ * intent_parser.c codelet에서 5초마다 전송하는 IntentReport를 수신.
+ *
+ * 출력 예시:
+ *   [DEMAND] UE=1 app=LLM src_port=54321
+ *            intents=4350/5s sum=6.0MB last=1400B deadline=50ms
+ *
+ * IntentReport 필드 해석:
+ *   intent_count:      이 5초 윈도우 동안 UE가 보낸 demand 패킷 수
+ *   sum_payload_bytes: UE가 이 5초 동안 보내겠다고 선언한 총 바이트 합계
+ *                      스케줄러에서 UL 그랜트 결정 시 참고 가능
+ *   app_type:          0=UNKNOWN, 1=LLM, 2=VLA, 3=VIDEO, 4=BULK
+ *   src_port:          flow 식별자 (UE 소켓의 source port)
+ *   deadline_ms:       soft deadline in milliseconds (0=없음)
+ */
+
+/*
+ * IntentReport 구조체: intent_parser.c의 struct IntentReport와 100% 동일해야 함.
+ * 레이아웃 (40 bytes, 8-byte 정렬):
+ *   [ 0] timestamp_ns       (8B)
+ *   [ 8] sum_payload_bytes  (8B)
+ *   [16] ue_id              (4B)
+ *   [20] intent_count       (4B)
+ *   [24] payload_bytes_last (4B)
+ *   [28] src_port           (2B)
+ *   [30] deadline_ms        (2B)
+ *   [32] app_type           (1B)
+ *   [33] _pad               (7B)
+ */
+struct IntentReport {
+    uint64_t timestamp_ns;
+    uint64_t sum_payload_bytes;
+    uint32_t ue_id;
+    uint32_t intent_count;
+    uint32_t payload_bytes_last;
+    uint16_t src_port;
+    uint16_t deadline_ms;
+    uint8_t  app_type;
+    uint8_t  _pad[7];
+};
+
+static void handle_intent(struct IntentReport *r)
+{
+    if (!r)
+        return;
+
+    const char *app_str = (r->app_type == 1) ? "LLM"   :
+                          (r->app_type == 2) ? "VLA"   :
+                          (r->app_type == 3) ? "VIDEO" :
+                          (r->app_type == 4) ? "BULK"  : "UNKNOWN";
+
+  //  LOG_I(GNB_APP,
+  //        "[DEMAND] UE=%u app=%s\n src_port=%u"
+  //        " intents=%u/5s sum=%.1fKB last=%uB deadline=%ums\n",
+  //        r->ue_id, app_str, r->src_port,
+  //        r->intent_count,
+  //        r->sum_payload_bytes / 1024.0f,
+  //        r->payload_bytes_last,
+  //        r->deadline_ms);
+    LOG_I(GNB_APP,
+          "[6G_REQUIREMENT] UE=%u\n", r->ue_id);
+    LOG_I(GNB_APP,
+          "[6G_REQUIREMENT] application=%s\n", app_str);
+    LOG_I(GNB_APP,
+          "[6G_REQUIREMENT] deadline=%ums\n", r->deadline_ms);
+      
 }
 
 /* ============================================================
@@ -934,6 +1140,222 @@ static void handle_mac_sr(struct sr_report *r)
           r->avg_ul_cqi / 100.0f);
 }
 
+/* ============================================================
+ * SR / BSR 패킷 덤프 핸들러
+ *
+ * mac_sr_packet_dump.c / mac_bsr_packet_dump.c 코드렛이
+ * jbpf_ringbuf_output()으로 전송한 데이터를 수신하여
+ * nr-softmodem 터미널에 ASCII 패킷 덤프 형태로 표시한다.
+ *
+ * 출력 전략 (로그 폭주 방지):
+ *   - 매 이벤트: compact 1줄 요약 (LOG_I)
+ *   - N번에 1번: 전체 ASCII 테이블 + Hex Dump (LOG_I)
+ *
+ * 인터벌 조정:
+ *   SR_DUMP_FULL_INTERVAL  : SR full dump 주기
+ *   BSR_DUMP_FULL_INTERVAL : BSR full dump 주기
+ *   값을 1로 설정하면 매 이벤트마다 전체 덤프 출력됨 (트래픽 적을 때)
+ *
+ * 출력 구조체(sr_packet_frame, bsr_packet_frame)는 파일 상단
+ * "MAC 스케줄러 Codelet 출력 구조체" 블록에 정의되어 있다.
+ * ============================================================ */
+
+/* 전체 ASCII 패킷 덤프를 출력하는 이벤트 주기 */
+#define SR_DUMP_FULL_INTERVAL   50    /* SR 50번에 1번 전체 덤프 */
+#define BSR_DUMP_FULL_INTERVAL  100   /* BSR 100번에 1번 전체 덤프 */
+
+/*
+ * 헥스 덤프 한 줄 출력 헬퍼
+ *
+ * @param bytes  출력할 데이터의 시작 포인터
+ * @param offset 전체 구조체 내 현재 오프셋 (출력에만 사용)
+ * @param len    이 줄에서 출력할 바이트 수 (1~8)
+ * @param tag    LOG_I 태그 구분용 접두사 ("SR" or "BSR")
+ *
+ * 학습: hex/ascii 문자를 로컬 배열에 먼저 조합 후 LOG_I 1번으로 출력.
+ *       → 여러 LOG_I 호출 간 다른 스레드 로그가 끼어드는 현상 방지.
+ */
+
+static void print_hex_line(const uint8_t *bytes, size_t offset, int len, const char *tag)
+{
+    char hex[25];   /* 최대 8×3 = 24자 + null */
+    char asc[9];    /* 최대 8자 + null */
+    int  hpos = 0;
+
+    for (int i = 0; i < len; i++) {
+        uint8_t b = bytes[offset + i];
+        hex[hpos]     = "0123456789ABCDEF"[b >> 4];
+        hex[hpos + 1] = "0123456789ABCDEF"[b & 0xF];
+        hex[hpos + 2] = ' ';
+        hpos += 3;
+        asc[i] = (b >= 0x20 && b <= 0x7E) ? (char)b : '.';
+    }
+    hex[hpos] = '\0';
+    asc[len]  = '\0';
+
+    /* 출력이 주석 처리되어 있어서 이 함수가 문자열만 조립하고 버리고 있었다
+     * (gcc 의 'hex/asc set but not used' 경고가 그 흔적). 호출 자체가
+     * SR 50회 / BSR 100회에 1번으로 throttle 되어 있고, 위쪽 주석이
+     * "전체 ASCII 테이블 + hex dump" 를 출력한다고 명시하므로 출력을
+     * 되살렸다. 다시 끄려면 호출부(print_hex_line)를 지우는 쪽이 맞다. */
+    LOG_I(GNB_APP, "[MAC %s DUMP] | %04zx: %-24s %s\n",
+          tag, offset, hex, asc);
+}
+
+/*
+ * SR 패킷 덤프 출력 핸들러
+ *
+ * 출력 구조:
+ *   [매 이벤트] compact 1줄:
+ *     [MAC SR ] #N RNTI=0x???? F???.S?? CQI=???(SNR~??dB)
+ *
+ *   [SR_DUMP_FULL_INTERVAL번에 1번] 전체 ASCII 테이블 + hex dump
+ *
+ * UL CQI → SNR 변환 (정수 연산, float 불필요):
+ *   snr_x10 = (ul_cqi - 128) × 5  [단위: 0.1 dB]
+ *   snr_int  = snr_x10 / 10
+ *   snr_frac = |snr_x10 % 10|
+ *   → "17.0 dB" 형태 표현
+ */
+static void handle_mac_sr_packet_dump(struct sr_packet_frame *r)
+{
+    if (!r)
+        return;
+
+    int snr_x10  = ((int)r->ul_cqi - 128) * 5;
+    int snr_int  = snr_x10 / 10;
+    int snr_frac = snr_x10 < 0 ? -(snr_x10 % 10) : (snr_x10 % 10);
+
+    /* ── compact 요약 (매 이벤트) ── */
+    //LOG_I(GNB_APP,
+    //      "[MAC SR ] #%-5u RNTI=0x%04x F%4u.S%02u  CQI=%3u(SNR~%d.%ddB)\n",
+    //      r->seq_num, r->rnti, r->frame, r->slot,
+    //      r->ul_cqi, snr_int, snr_frac);
+
+    /* ── 전체 덤프 (N번에 1번, 또는 첫 이벤트) ── */
+    if (r->seq_num % SR_DUMP_FULL_INTERVAL != 0)
+        return;
+
+    const uint8_t *raw = (const uint8_t *)r;
+    size_t sz = sizeof(struct sr_packet_frame);  /* = 24 */
+
+    LOG_I(GNB_APP, "[MAC SR DUMP] +------------------------------------------------------------------+\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] |  5G NR MAC UL Control: SR (Scheduling Request)  #%u\n",
+          r->seq_num);
+    LOG_I(GNB_APP, "[MAC SR DUMP] |  Hook: mac_sr_detect | PUCCH Fmt0/1 | UL Grant 요청 시그널\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] +------+----------------+----------+-------+--------------------+\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] | OFF  | FIELD          | HEX      | DEC   | NOTE               |\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] +------+----------------+----------+-------+--------------------+\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] |  0   | Timestamp      | %016llx | -     | CPU rdtsc cycles   |\n",
+          (unsigned long long)r->ts_cycles);
+    LOG_I(GNB_APP, "[MAC SR DUMP] |  8   | RNTI           | 0x%04x   | %5u | UE Radio Temp ID   |\n",
+          r->rnti, r->rnti);
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 10   | Frame          | 0x%04x   | %5u | 10ms 프레임 (0~1023)|\n",
+          r->frame, r->frame);
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 12   | Slot           | 0x%02x     | %5u | 슬롯 (SCS=30kHz)   |\n",
+          r->slot, r->slot);
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 13   | SR Detected    | 0x%02x     | %5u | 1=VALID SR         |\n",
+          r->sr_detected, r->sr_detected);
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 14   | UL CQI         | 0x%02x     | %5u | SNR~%d.%ddB(148=10dB)|\n",
+          r->ul_cqi, r->ul_cqi, snr_int, snr_frac);
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 15   | _pad[5]        | -         | -     | 정렬 패딩 5바이트  |\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] | 20   | Seq#           | 0x%08x | %5u | 이벤트 번호        |\n",
+          r->seq_num, r->seq_num);
+    LOG_I(GNB_APP, "[MAC SR DUMP] +------+----------------+----------+-------+--------------------+\n");
+    LOG_I(GNB_APP, "[MAC SR DUMP] |  Hex Dump  (%zu bytes)                                        |\n", sz);
+
+    for (size_t off = 0; off < sz; off += 8) {
+        int chunk = (int)(sz - off);
+        if (chunk > 8) chunk = 8;
+        print_hex_line(raw, off, chunk, "SR");
+    }
+
+    LOG_I(GNB_APP, "[MAC SR DUMP] +------------------------------------------------------------------+\n");
+}
+
+/*
+ * BSR 패킷 덤프 출력 핸들러
+ *
+ * 출력 구조:
+ *   [매 이벤트] compact 1줄:
+ *     [MAC BSR] #N RNTI=0x???? F???.S?? Short/Long LCG=? est=????B(~?KB)
+ *
+ *   [BSR_DUMP_FULL_INTERVAL번에 1번] 전체 ASCII 테이블 + hex dump
+ *
+ * LCG ID 해석:
+ *   0~7: Short BSR에서 보고한 특정 논리채널그룹
+ *   0xFF: Long BSR (여러 LCG 포함, lcg_id를 ALL로 표시)
+ */
+static void handle_mac_bsr_packet_dump(struct bsr_packet_frame *r)
+{
+    if (!r)
+        return;
+
+    const char *bsr_type_str = (r->bsr_type == 0) ? "Short" : "Long";
+    uint32_t kb_int  = r->estimated_bytes / 1024;
+    uint32_t kb_frac = (r->estimated_bytes % 1024) * 10 / 1024;
+
+    /* LCG ID 문자열 */
+    char lcg_str[16];
+    if (r->lcg_id == 0xFF)
+        __builtin_memcpy(lcg_str, "ALL", 4);
+    else {
+        lcg_str[0] = '0' + (r->lcg_id & 0xF);
+        lcg_str[1] = '\0';
+    }
+
+    /* ── compact 요약 (매 이벤트) ── */
+    //LOG_I(GNB_APP,
+    //      "[MAC BSR] #%-5u RNTI=0x%04x F%4u.S%02u  %5s LCG=%-3s est=%5uB(~%u.%uKB)\n",
+    //      r->seq_num, r->rnti, r->frame, r->slot,
+    //      bsr_type_str, lcg_str,
+    //      r->estimated_bytes, kb_int, kb_frac);
+
+    /* ── 전체 덤프 (N번에 1번, 또는 첫 이벤트) ── */
+    if (r->seq_num % BSR_DUMP_FULL_INTERVAL != 0)
+        return;
+
+    const uint8_t *raw = (const uint8_t *)r;
+    size_t sz = sizeof(struct bsr_packet_frame);  /* = 24 */
+
+    LOG_I(GNB_APP, "[MAC BSR DUMP] +------------------------------------------------------------------+\n");
+    LOG_I(GNB_APP, "[MAC BSR DUMP] |  5G NR MAC UL Control: BSR (Buffer Status Report)  #%u\n",
+          r->seq_num);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] |  Hook: mac_bsr_event | %s BSR MAC CE | PUSCH 내 포함\n",
+          bsr_type_str);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] +------+------------------+----------+-------+------------------+\n");
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | OFF  | FIELD            | HEX      | DEC   | NOTE             |\n");
+    LOG_I(GNB_APP, "[MAC BSR DUMP] +------+------------------+----------+-------+------------------+\n");
+    LOG_I(GNB_APP, "[MAC BSR DUMP] |  0   | Timestamp        | %016llx | -     | CPU rdtsc cycles |\n",
+          (unsigned long long)r->ts_cycles);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] |  8   | RNTI             | 0x%04x   | %5u | UE Radio Temp ID |\n",
+          r->rnti, r->rnti);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 10   | Frame            | 0x%04x   | %5u | 10ms 프레임      |\n",
+          r->frame, r->frame);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 12   | Slot             | 0x%02x     | %5u | 슬롯 (0~19)      |\n",
+          r->slot, r->slot);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 13   | BSR Type         | 0x%02x     | %5s | Short/Long       |\n",
+          r->bsr_type, bsr_type_str);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 14   | LCG ID           | 0x%02x     | %5s | 논리채널그룹     |\n",
+          r->lcg_id, lcg_str);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 15   | _pad             | 0x%02x     | -     | 정렬 패딩 1바이트|\n",
+          r->_pad);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 16   | Estimated Bytes  | 0x%08x | %5u | ~%u.%uKB UL 버퍼 |\n",
+          r->estimated_bytes, r->estimated_bytes, kb_int, kb_frac);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] | 20   | Seq#             | 0x%08x | %5u | 이벤트 번호      |\n",
+          r->seq_num, r->seq_num);
+    LOG_I(GNB_APP, "[MAC BSR DUMP] +------+------------------+----------+-------+------------------+\n");
+    LOG_I(GNB_APP, "[MAC BSR DUMP] |  Hex Dump  (%zu bytes)                                        |\n", sz);
+
+    for (size_t off = 0; off < sz; off += 8) {
+        int chunk = (int)(sz - off);
+        if (chunk > 8) chunk = 8;
+        print_hex_line(raw, off, chunk, "BSR");
+    }
+
+    LOG_I(GNB_APP, "[MAC BSR DUMP] +------------------------------------------------------------------+\n");
+}
+
 /**
  * JBPF I/O 출력 콜백 핸들러
  *
@@ -952,8 +1374,8 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
     }
 
     /* 디버그: 수신된 데이터 정보 로깅 */
-    LOG_I(GNB_APP, "Received %d buffers from codelet (stream_id: %02x%02x...)\n",
-          num_bufs, stream_id->id[0], stream_id->id[1]);
+    //LOG_I(GNB_APP, "Received %d buffers from codelet (stream_id: %02x%02x...)\n",
+    //      num_bufs, stream_id->id[0], stream_id->id[1]);
 
     /*
      * 추후 확장 가능 영역:
@@ -1020,6 +1442,111 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
 
         } else if (is_mac_sr_stream(stream_id)) {
             handle_mac_sr((struct sr_report *)bufs[i]);
+
+        } else if (is_mac_sr_dump_stream(stream_id)) {
+            /*
+             * Stream ID 0xAA...05: mac_sr_packet_dump 코드렛
+             * 매 SR 이벤트를 Wireshark 스타일 ASCII 패킷 덤프로 출력
+             */
+            handle_mac_sr_packet_dump((struct sr_packet_frame *)bufs[i]);
+
+        } else if (is_mac_bsr_dump_stream(stream_id)) {
+            /*
+             * Stream ID 0xAA...06: mac_bsr_packet_dump 코드렛
+             * 매 BSR 이벤트를 Wireshark 스타일 ASCII 패킷 덤프로 출력
+             */
+            handle_mac_bsr_packet_dump((struct bsr_packet_frame *)bufs[i]);
+
+        } else if (is_intent_stream(stream_id)) {
+            /*
+             * Stream ID 0xBB...01: intent_parser 코드렛
+             * UE의 6G Intent 패킷을 5초마다 요약 출력
+             * intent_monitoring_dev.yaml로 로드
+             */
+            handle_intent((struct IntentReport *)bufs[i]);
+
+        } else if (is_weight_stream(stream_id)) {
+            /*
+             * ─── Stream ID 0xCC…01: QoS weight 정책 채널 ───────────
+             *
+             * 이 분기가 jbpf 출력 중 *유일하게 gNB 동작을 바꾸는* 경로다.
+             * 나머지 스트림은 전부 로그로만 나간다.
+             *
+             *   1. duration_ms 센티널이면 전체 해제 후 종료
+             *   2. CU-UE-ID → MAC RNTI 역조회
+             *   3. Q16.16 → float 변환 (이 경계에서만 일어난다)
+             *   4. qos_weight_apply() 로 테이블 반영
+             */
+            struct WeightUpdate *wu = (struct WeightUpdate *)bufs[i];
+
+            /* ── (1) 전체 해제 요청 ────────────────────────────────
+             * rnti / weight_q16 필드는 의미가 없으므로 RNTI 역조회를
+             * 하기 전에 처리한다. 코드렛의 APP_TYPE_RESET 경로가 발사. */
+            if (wu->duration_ms == QOS_WEIGHT_TTL_CLEAR_ALL) {
+                qos_weight_clear_all();
+                LOG_I(GNB_APP, "[QoS] clear_all — 모든 UE 가중치 해제\n");
+                continue;
+            }
+
+            /* ── (2) CU-UE-ID → MAC RNTI 역방향 조회 ───────────────
+             *
+             * 코드렛이 보낸 wu->rnti 는 PDCP 의 내부 UE ID (= CU-UE-ID)
+             * 이고 MAC RNTI 가 아니다. 스케줄러는 UE->rnti (0x59a2 같은
+             * 실제 RNTI) 로 lookup 하므로 여기서 변환해야 한다.
+             *
+             * connected_ue_list[CU-UE-ID - 1] 인덱싱은 쓸 수 없다 —
+             * CU-UE-ID 가 재사용되지 않아서 (UE 가 끊기면 다음 UE 는 더
+             * 큰 값을 받는다) 인덱스가 어긋난다. 그래서 리스트를 돌며
+             * du_get_f1_ue_data(rnti).secondary_ue == CU-UE-ID 인 UE 를
+             * 찾는 역조회를 한다.
+             *
+             * du_*_f1_ue_data 는 DU(= MAC) 가 들고 있는 F1AP UE ID 매핑
+             * 테이블이다. monolithic gNB 에서는 CU-UE-ID 가 곧 PDCP/RRC
+             * 의 ue_id 이고, 이걸 MAC RNTI 와 묶어두는 자리가 여기다. */
+            uint32_t cu_ue_id = wu->rnti;
+            uint16_t mac_rnti = 0;
+            gNB_MAC_INST *nrmac = RC.nrmac[0];
+            if (nrmac) {
+                NR_SCHED_LOCK(&nrmac->sched_lock);
+                UE_iterator(nrmac->UE_info.connected_ue_list, ue_it) {
+                    if (du_exists_f1_ue_data(ue_it->rnti)) {
+                        f1_ue_data_t ued = du_get_f1_ue_data(ue_it->rnti);
+                        if (ued.secondary_ue == cu_ue_id) {
+                            mac_rnti = ue_it->rnti;
+                            break;
+                        }
+                    }
+                }
+                NR_SCHED_UNLOCK(&nrmac->sched_lock);
+            }
+            if (mac_rnti == 0) {
+                /* UE 가 disconnect 됐거나 아직 RRC connected 전.
+                 * 다음 demand6 가 보완한다. */
+                LOG_D(GNB_APP, "[QoS] CU-UE-ID %u 에 해당하는 MAC RNTI 없음\n",
+                      cu_ue_id);
+                continue;
+            }
+
+            /* ── (3)(4) 적용 ───────────────────────────────────────
+             *
+             * 로그를 throttle 하지 않는다. 변화 감지는 코드렛의
+             * last_weight_q16 비교 한 곳에만 있고 (intent_parser.c),
+             * 여기 도착하는 메시지는 이미 "정책이 실제로 바뀐 순간"
+             * 뿐이다. 양쪽에 같은 판정을 두면 둘이 어긋날 때 디버깅이
+             * 어려워진다. */
+            float w = QOS_WEIGHT_FROM_Q16(wu->weight_q16);
+            qos_weight_apply(mac_rnti, w, wu->duration_ms);
+
+            if (w == 1.0f) {
+                LOG_I(GNB_APP, "[QoS] rnti=%04x (cu_ue_id=%u) 정책 해제 → PF 기본값\n",
+                      mac_rnti, cu_ue_id);
+            } else if (wu->duration_ms == 0) {
+                LOG_I(GNB_APP, "[QoS] rnti=%04x (cu_ue_id=%u) weight=%.2f PERMANENT\n",
+                      mac_rnti, cu_ue_id, w);
+            } else {
+                LOG_I(GNB_APP, "[QoS] rnti=%04x (cu_ue_id=%u) weight=%.2f ttl=%ums\n",
+                      mac_rnti, cu_ue_id, w, wu->duration_ms);
+            }
 
         } else {
             LOG_W(GNB_APP, "[JBPF] Unknown stream ID: %02x...%02x\n",

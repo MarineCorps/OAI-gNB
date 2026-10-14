@@ -31,6 +31,50 @@
 
 /*
  * ============================================================
+ * Rate Limiting 상수 및 상태 구조체
+ * ============================================================
+ *
+ * 문제: iperf3 UDP 고속 트래픽은 수만 pkt/s → 매 패킷 출력 시
+ *       nr-softmodem 터미널 과부하
+ *
+ * 해결: ARRAY 맵에 {last_report_ns, pkt_count}를 저장하여
+ *       5초마다 한 번만 ringbuf에 출력.
+ *
+ * jbpf_time_get_ns() 동작:
+ *   - jBPF 런타임이 제공하는 helper (jbpf_helper.h:86)
+ *   - 내부: CLOCK_MONOTONIC 기반, 시스템 부팅 이후 nanoseconds 반환
+ *   - ARRAY 맵 초기값 = 0 → 첫 호출 시 즉시 리포트 출력
+ *
+ * ULL(unsigned long long) 접미사가 필요한 이유:
+ *   5 * 1,000,000,000 = 5,000,000,000 > INT_MAX(2,147,483,647)
+ *   → 32비트 정수로는 overflow. ULL로 64비트 연산 보장.
+ */
+#define REPORT_INTERVAL_NS  (5ULL * 1000000000ULL)
+
+struct hp_rate_state {
+    uint64_t last_report_ns;  /* 마지막 ringbuf 출력 시각 (nanoseconds) */
+    uint64_t pkt_count;       /* 마지막 출력 이후 처리된 패킷 수 */
+};
+
+/*
+ * Rate Limiting 상태 맵 (ARRAY 타입)
+ *
+ * ARRAY vs HASHMAP:
+ *   ARRAY:   key = 정수 인덱스, 항상 메모리 할당됨, lookup 항상 성공
+ *   HASHMAP: key = 임의값, 동적 관리, 처음에 없으면 NULL
+ *   → 전역 단일 상태(카운터)에는 ARRAY가 적합
+ *
+ * max_entries=1: key=0만 유효. sizeof(hp_rate_state)=16바이트.
+ */
+struct jbpf_load_map_def SEC("maps") hp_state_map = {
+    .type        = JBPF_MAP_TYPE_ARRAY,
+    .key_size    = sizeof(uint32_t),
+    .value_size  = sizeof(struct hp_rate_state),
+    .max_entries = 1,
+};
+
+/*
+ * ============================================================
  * Output Map 정의 - Application으로 데이터 전송
  * ============================================================
  *
@@ -39,35 +83,15 @@
  * 파라미터:
  * - outmap: Map 이름
  * - struct Packet5Tuple: 전송할 데이터 구조체
- * - 1024: 링버퍼 크기 (동시 저장 가능한 항목 수)
+ * - 32: 링버퍼 크기 (5초에 1개 출력이므로 32개면 충분)
+ *   기존 1024에서 줄임: 출력 빈도가 낮아졌으므로 메모리 절약
  */
-//Ringbuffer Map 생성 1024개의 Packet5Tuple 구조체를 저장할 수 있는 outmap이라는 이름의 링버퍼 맵을 생성
-jbpf_ringbuf_map(outmap, struct Packet5Tuple, 1024);
+//Ringbuffer Map 생성 32개의 Packet5Tuple 구조체를 저장할 수 있는 outmap이라는 이름의 링버퍼 맵을 생성
+jbpf_ringbuf_map(outmap, struct Packet5Tuple, 32);
 
-/*
- * ============================================================
- * Context 구조체 정의
- * ============================================================
- *
- * ⚠️ CRITICAL: nr_pdcp_oai_api.c의 pdcp_uplink_ctx와 100% 동일!
- */
-struct pdcp_uplink_ctx {
-    /* eBPF Verifier 필수 필드 */
-    uint64_t data;          // IP 패킷 시작 포인터
-    uint64_t data_end;      // 패킷 끝 포인터
-    uint64_t meta_data;     // 타임스탬프
-
-    /* 5G Network 메타데이터 */
-    uint32_t ue_id;         // UE 식별자
-    uint8_t pdusession_id;  // PDU Session ID
-    uint8_t rb_id;          // Radio Bearer ID
-    uint8_t has_sdap_rx;    // SDAP 헤더 존재 여부
-    uint8_t qfi;            // QoS Flow Identifier
-
-    /* 패킷 크기 정보 */
-    uint32_t total_size;    // 전체 크기
-    uint32_t ip_size;       // IP 패킷 크기
-};
+/* Hook context 정의는 ../pdcp_hook_ctx.h 에 있다 (gNB 쪽과 공유).
+ * 재정의하면 양쪽 레이아웃이 어긋나며 silent corruption 이 난다. */
+#include "pdcp_hook_ctx.h"
 
 /*
  * ============================================================
@@ -101,8 +125,42 @@ uint64_t jbpf_main(void* state)
     if (!ctx) {
         return 1;
     }
-    
-    /* 
+
+    /*
+     * Step 1-B: Rate Limiting (5초마다 한 번만 출력)
+     *
+     * ARRAY 맵 lookup 패턴:
+     *   uint32_t key = 0;
+     *   struct T *ptr = jbpf_map_lookup_elem(&map, &key);
+     *   if (!ptr) return 1;
+     *
+     * ARRAY 맵에서 key < max_entries이면 실제로 NULL이 되는 일이 없다.
+     * 하지만 eBPF verifier는 이를 정적으로 증명할 수 없으므로
+     * 반드시 NULL 체크 코드를 작성해야 검증을 통과한다.
+     *
+     * 흐름:
+     *   1. pkt_count++ (매 패킷마다 카운터 증가)
+     *   2. now - last_report_ns < 5s → return 0 (출력 없음)
+     *   3. 5s 경과 → saved_count 보존, 타이머 리셋, 카운터 리셋
+     *   4. 이후 기존 파싱 로직 실행 → ringbuf 출력
+     */
+    uint32_t rate_key = 0;
+    struct hp_rate_state *st = jbpf_map_lookup_elem(&hp_state_map, &rate_key);
+    if (!st)
+        return 1;
+
+    st->pkt_count++;
+
+    uint64_t now = jbpf_time_get_ns();
+    if (now - st->last_report_ns < REPORT_INTERVAL_NS)
+        return 0;  /* 5초 아직 안 됨: 카운트만 하고 종료 */
+
+    /* 5초 경과: 카운트 저장 후 리셋 */
+    uint64_t saved_pkt_count = st->pkt_count;
+    st->last_report_ns       = now;
+    st->pkt_count            = 0;
+
+    /*
      * [디버깅용] Codelet 진입 확인 로그
      * 이 로그가 보이면 Codelet은 정상적으로 로드되고 Hook이 호출된 것입니다.
      */
@@ -154,12 +212,13 @@ uint64_t jbpf_main(void* state)
      * Step 7: 출력 데이터 초기화
      */
     struct Packet5Tuple packet = {0};
-    packet.timestamp = ctx->meta_data; // 패킷 처리 시작 시간 기록
-    packet.src_ip = src_ip;
-    packet.dst_ip = dst_ip;
-    packet.ue_id = ctx->ue_id;
-    packet.qfi = ctx->qfi;
-    packet.protocol = protocol;
+    packet.timestamp  = ctx->meta_data; // 패킷 처리 시작 시간 기록
+    packet.pkt_count  = saved_pkt_count; // 이 윈도우에서 처리한 패킷 수
+    packet.src_ip     = src_ip;
+    packet.dst_ip     = dst_ip;
+    packet.ue_id      = ctx->ue_id;
+    packet.qfi        = ctx->qfi;
+    packet.protocol   = protocol;
 
     /*
      * Step 8: L4 프로토콜별 포트 추출

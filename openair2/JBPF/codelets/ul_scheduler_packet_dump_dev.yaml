@@ -1,0 +1,121 @@
+# ================================================================
+# ul_scheduler_packet_dump_dev.yaml
+# ================================================================
+#
+# UL 스케줄러 패킷 덤프 Codeletset 정의 (개발/로컬 경로 버전)
+#
+# 목적:
+#   SR 및 BSR 이벤트를 필터링 없이 100% 캡처하여
+#   nr-softmodem 터미널에 Wireshark 스타일 ASCII 패킷 덤프로 표시.
+#
+# 기존 mac_scheduler_monitoring_dev.yaml (통계/집계 목적)과의 차이:
+#   - 통계 집계 없음: 이벤트 1개 = 출력 1개
+#   - 필터링 없음: 모든 SR/BSR 이벤트 즉시 출력
+#   - 목적: 프레임 수준 디버깅 및 패킷 구조 학습
+#
+# 주의: 트래픽이 많으면 출력이 매우 빈번해질 수 있음.
+#       개발/테스트 환경에서만 사용 권장.
+#
+# ─────────────────────────────────────────────────────────────────
+# 사용법:
+#
+#   # 1. Codelets 컴파일
+#   cd /home/inho/OAI-gNB/openair2/JBPF/codelets
+#   make mac_sr_packet_dump.o mac_bsr_packet_dump.o
+#
+#   # 2. gNB 실행 (-DJBPF_HOOK=ON 빌드 필요)
+#   #    cmake .. -DJBPF_HOOK=ON && make nr-softmodem
+#   sudo ./nr-softmodem -O gnb.conf --sa ...
+#
+#   # 3. Codeletset 로드 (별도 터미널에서)
+#   jbpf_lcm_cli load \
+#     -s /tmp/jbpf/jbpf_oai_gnb \
+#     -c /home/inho/OAI-gNB/openair2/JBPF/codelets/ul_scheduler_packet_dump_dev.yaml
+#
+#   # 4. nr-softmodem 터미널에서 아래와 같은 출력을 확인:
+#   #
+#   #   [MAC SR DUMP] +------------------------------------------------------------------+
+#   #   [MAC SR DUMP] |  5G NR MAC UL Control: SR (Scheduling Request)  #0
+#   #   [MAC SR DUMP] |  Hook: mac_sr_detect | PUCCH Fmt0/1 | UL Grant 요청 시그널
+#   #   [MAC SR DUMP] +------+----------------+----------+-------+--------------------+
+#   #   [MAC SR DUMP] | OFF  | FIELD          | HEX      | DEC   | NOTE               |
+#   #   [MAC SR DUMP] +------+----------------+----------+-------+--------------------+
+#   #   [MAC SR DUMP] |  0   | Timestamp      | 1A2B3C4D5E6F7A8B | -  | CPU rdtsc     |
+#   #   [MAC SR DUMP] |  8   | RNTI           | 0x1234   |  4660 | UE Radio Temp ID   |
+#   #   ...
+#   #   [MAC SR DUMP] +------------------------------------------------------------------+
+#   #
+#   #   [MAC BSR DUMP] +------------------------------------------------------------------+
+#   #   [MAC BSR DUMP] |  5G NR MAC UL Control: BSR (Buffer Status Report)  #0
+#   #   ...
+#
+#   # 5. Codeletset 언로드
+#   jbpf_lcm_cli unload \
+#     -s /tmp/jbpf/jbpf_oai_gnb \
+#     -c /home/inho/OAI-gNB/openair2/JBPF/codelets/ul_scheduler_packet_dump_dev.yaml
+#
+# ─────────────────────────────────────────────────────────────────
+# Stream ID 체계 (16바이트):
+#
+#   기존 MAC 스케줄러 모니터링 (mac_scheduler_monitoring_dev.yaml):
+#     AABB0011223344556677889900000001  id[0]=0xAA id[15]=0x01  DL PRB
+#     AABB0011223344556677889900000002  id[0]=0xAA id[15]=0x02  UL PRB
+#     AABB0011223344556677889900000003  id[0]=0xAA id[15]=0x03  BSR 통계
+#     AABB0011223344556677889900000004  id[0]=0xAA id[15]=0x04  SR 통계
+#
+#   이 파일 (패킷 덤프 전용):
+#     AABB001122334455667788990000AA05  id[0]=0xAA id[15]=0x05  SR 패킷 덤프
+#     AABB001122334455667788990000AA06  id[0]=0xAA id[15]=0x06  BSR 패킷 덤프
+# ─────────────────────────────────────────────────────────────────
+
+codelet_descriptor:
+
+  # ──────────────────────────────────────────────────────────────
+  # Codelet 1: SR 패킷 덤프
+  #
+  # hook_name: mac_sr_detect
+  #   → gNB_scheduler_uci.c에서 유효한 SR 감지 후 즉시 호출
+  #
+  # 이 codelet이 하는 일:
+  #   1. 매 SR 이벤트마다 sr_packet_frame(24 bytes) 구성
+  #   2. 전역 시퀀스 번호 부여
+  #   3. sr_dump_output 링버퍼로 전송
+  #   4. nr-softmodem.c의 handle_mac_sr_packet_dump()가 ASCII 덤프 출력
+  #
+  # out_io_channel:
+  #   name: mac_sr_packet_dump.c 에서 jbpf_ringbuf_map()으로 선언한 맵 이름
+  #   stream_id: is_mac_sr_dump_stream() 함수와 일치 (id[0]=0xAA, id[15]=0x05)
+  # ──────────────────────────────────────────────────────────────
+  - codelet_name: mac_sr_packet_dump
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_sr_packet_dump.o
+    hook_name: mac_sr_detect
+    out_io_channel:
+      - name: sr_dump_output
+        stream_id: 'AABB001122334455667788990000AA05'
+    priority: 2
+
+  # ──────────────────────────────────────────────────────────────
+  # Codelet 2: BSR 패킷 덤프
+  #
+  # hook_name: mac_bsr_event
+  #   → gNB_scheduler_ulsch.c에서 Short/Long BSR MAC CE 수신 후 호출
+  #
+  # priority: 2
+  #   기존 mac_bsr_monitor (priority=1)보다 낮은 우선순위로 동작.
+  #   같은 hook에 여러 codelet이 붙을 때 priority 낮은 것이 나중에 실행됨.
+  #   → 통계 집계(priority=1) 완료 후 덤프 출력(priority=2) 순서 보장.
+  #
+  # 주의: mac_bsr_monitor.c(0x03)와 이 codelet(0x06)은 다른 stream_id를 사용하므로
+  #       동시에 로드해도 nr-softmodem.c가 두 스트림을 독립적으로 처리한다.
+  # ──────────────────────────────────────────────────────────────
+  - codelet_name: mac_bsr_packet_dump
+    codelet_path: /home/inho/OAI-gNB/openair2/JBPF/codelets/mac_bsr_packet_dump.o
+    hook_name: mac_bsr_event
+    out_io_channel:
+      - name: bsr_dump_output
+        stream_id: 'AABB001122334455667788990000AA06'
+    priority: 2
+
+# codeletset_id: 이 codeletset의 고유 이름
+# 언로드 명령: jbpf_lcm_cli unload -s /tmp/jbpf/jbpf_oai_gnb -c <이 파일>
+codeletset_id: ul_scheduler_packet_dump_dev

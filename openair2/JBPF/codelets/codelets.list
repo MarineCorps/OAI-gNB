@@ -1,0 +1,31 @@
+# 빌드할 코드렛 목록 — Makefile 과 CMakeLists.txt 가 함께 읽는 single source.
+#
+# 전에는 두 빌드 경로가 각자 목록을 들고 있었고, 그래서 intent_parser 가
+# Makefile 에만 있고 CMake 쪽에는 없는 상태로 드리프트했다 (CMake 로만
+# 빌드한 트리에는 데모 코드렛이 아예 없었다). 목록은 여기 한 곳에만 둔다.
+#
+# 규칙:
+#   - 한 줄에 코드렛 이름 하나 (.c 확장자 없이)
+#   - '#' 로 시작하는 줄과 빈 줄은 무시
+#   - 전부 빌드한다. 코드렛을 빌드해도 *로드하지 않으면* gNB 에 아무
+#     영향이 없고 (hook 은 붙은 코드렛이 없으면 포인터 한 번 읽고 끝),
+#     clang 호출은 각 수십 ms 다. 그래서 "쓸 것만 빌드"하는 주석 토글을
+#     없앴다 — 어느 YAML 을 로드해도 .o 가 없어서 실패하는 일이 사라진다.
+#
+# 실제로 어느 코드렛이 *동작하는지* 는 codelets/*.yaml 매니페스트가 정한다.
+
+# ── SDAP / PDCP 계층 ───────────────────────────────────────────────
+sdap_packet_stats      # UL 패킷·바이트 통계          (hook: sdap_uplink)
+sdap_qfi_classifier    # QFI 별 트래픽 분류           (hook: sdap_uplink)
+header_parser          # L3/L4 5-tuple 추출           (hook: pdcp_uplink)
+intent_parser          # demand6 파싱 + QoS 정책 발사 (hook: pdcp_uplink)
+
+# ── MAC 스케줄러 — 집계 ────────────────────────────────────────────
+mac_dl_prb_stats       # DL PRB 점유율                (hook: mac_dl_prb_alloc)
+mac_ul_prb_stats       # UL PRB 점유율                (hook: mac_ul_prb_alloc)
+mac_bsr_monitor        # BSR 수신 집계                (hook: mac_bsr_event)
+mac_sr_monitor         # SR 감지 집계                 (hook: mac_sr_detect)
+
+# ── MAC 스케줄러 — 전수 패킷 덤프 ──────────────────────────────────
+mac_sr_packet_dump     # SR  이벤트 ASCII 덤프        (hook: mac_sr_detect)
+mac_bsr_packet_dump    # BSR 이벤트 ASCII 덤프        (hook: mac_bsr_event)
