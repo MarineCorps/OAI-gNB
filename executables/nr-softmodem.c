@@ -1505,25 +1505,39 @@ static void jbpf_io_output_handler(jbpf_io_stream_id_t* stream_id, void** bufs, 
              * 의 ue_id 이고, 이걸 MAC RNTI 와 묶어두는 자리가 여기다. */
             uint32_t cu_ue_id = wu->rnti;
             uint16_t mac_rnti = 0;
+
+            /* 생존 RNTI 목록. 같은 순회에서 공짜로 모을 수 있으므로
+             * 아래 qos_weight_retain() 으로 유령 엔트리를 정리한다.
+             * (정책은 영구이고 OAI 는 RNTI 를 재사용하므로, 정리하지
+             *  않으면 신규 UE 가 남의 정책을 상속한다.) */
+            uint16_t live_rnti[MAX_MOBILES_PER_GNB];
+            int      live_n = 0;
+
             gNB_MAC_INST *nrmac = RC.nrmac[0];
             if (nrmac) {
                 NR_SCHED_LOCK(&nrmac->sched_lock);
                 UE_iterator(nrmac->UE_info.connected_ue_list, ue_it) {
-                    if (du_exists_f1_ue_data(ue_it->rnti)) {
+                    if (live_n < MAX_MOBILES_PER_GNB)
+                        live_rnti[live_n++] = ue_it->rnti;
+                    if (mac_rnti == 0 && du_exists_f1_ue_data(ue_it->rnti)) {
                         f1_ue_data_t ued = du_get_f1_ue_data(ue_it->rnti);
-                        if (ued.secondary_ue == cu_ue_id) {
+                        if (ued.secondary_ue == cu_ue_id)
                             mac_rnti = ue_it->rnti;
-                            break;
-                        }
                     }
                 }
                 NR_SCHED_UNLOCK(&nrmac->sched_lock);
             }
+
+            /* 락을 놓은 뒤 정리한다 — qos_weight 의 rwlock 과
+             * 스케줄러 락을 중첩해서 잡지 않기 위해서다. */
+            qos_weight_retain(live_rnti, live_n);
+
             if (mac_rnti == 0) {
                 /* UE 가 disconnect 됐거나 아직 RRC connected 전.
-                 * 다음 demand6 가 보완한다. */
-                LOG_D(GNB_APP, "[QoS] CU-UE-ID %u 에 해당하는 MAC RNTI 없음\n",
-                      cu_ue_id);
+                 * 코드렛이 WEIGHT_REASSERT_NS(2초) 주기로 재확인하므로
+                 * 이 메시지를 버려도 정책은 자동 복구된다. */
+                LOG_D(GNB_APP, "[QoS] CU-UE-ID %u 에 해당하는 MAC RNTI 없음 "
+                               "(2초 내 재확인으로 복구)\n", cu_ue_id);
                 continue;
             }
 

@@ -75,8 +75,23 @@
  * 상수 정의
  * ============================================================ */
 
-/* 5초 = 5,000,000,000 ns */
+/* 5초 = 5,000,000,000 ns — IntentReport(관측 채널) 출력 주기 */
 #define REPORT_INTERVAL_NS  (5ULL * 1000000000ULL)
+
+/*
+ * 정책 재확인 주기 (2초)
+ *
+ * weight 는 기본적으로 "변할 때만" push 한다. 그런데 host 는 CU-UE-ID →
+ * MAC RNTI 역조회에 실패하면(UE 가 아직 RRC connected 전이거나 재구성 중)
+ * 그 메시지를 *버린다*. 코드렛은 host 의 처리 결과를 알 수 없으므로
+ * push 성공만으로 last_weight_q16 을 갱신하는데, 그러면 버려진 정책이
+ * app_type 이 바뀔 때까지 영구히 복구되지 않는다.
+ *
+ * 그래서 값이 같아도 이 주기마다 한 번은 다시 push 해서 자기 치유시킨다.
+ * UE 16대 최악의 경우에도 초당 8 메시지로, 변화-감지 도입 전의
+ * 패킷당 push(초당 수천)와는 비교가 안 되는 수준이다.
+ */
+#define WEIGHT_REASSERT_NS  (2ULL * 1000000000ULL)
 
 /*
  * DEMAND6_PROTOCOL_ID: '6','G','N','I' = 0x36474E49
@@ -190,18 +205,22 @@ struct IntentReport {
  *                    않는다). 이 값과 비교해 *변화가 있을 때만* push
  *                    하므로, demand6 가 초당 수천 개 들어와도 host 쪽
  *                    스케줄러 락 진입은 정책이 바뀌는 순간에만 발생한다.
+ * last_push_ns     : 마지막 push 시각. WEIGHT_REASSERT_NS 가 지나면
+ *                    값이 같아도 한 번 다시 push 한다 (host 가 버린
+ *                    정책을 자기 치유).
  */
 struct intent_state {
     uint64_t last_report_ns;     /*  0 */
     uint64_t sum_payload_bytes;  /*  8 */
-    uint32_t ue_id;              /* 16 */
-    uint32_t intent_count;       /* 20 */
-    uint32_t payload_bytes_last; /* 24 */
-    uint32_t last_weight_q16;    /* 28 */
-    uint16_t src_port;           /* 32 */
-    uint16_t deadline_ms;        /* 34 */
-    uint8_t  app_type;           /* 36 */
-    uint8_t  _pad[3];            /* 37 → 총 40 B (8 배수) */
+    uint64_t last_push_ns;       /* 16 */
+    uint32_t ue_id;              /* 24 */
+    uint32_t intent_count;       /* 28 */
+    uint32_t payload_bytes_last; /* 32 */
+    uint32_t last_weight_q16;    /* 36 */
+    uint16_t src_port;           /* 40 */
+    uint16_t deadline_ms;        /* 42 */
+    uint8_t  app_type;           /* 44 */
+    uint8_t  _pad[3];            /* 45 → 총 48 B (8 배수) */
 };
 
 /* ============================================================
@@ -282,6 +301,24 @@ static inline uint32_t ntohl_impl(uint32_t v) {
            ((v & 0x0000FF00U) <<  8) |
            ((v & 0x00FF0000U) >>  8) |
            ((v & 0xFF000000U) >> 24);
+}
+
+/*
+ * WeightUpdate 한 건을 정책 채널로 발사한다.
+ *
+ * 두 경로(정상 / 상태맵 열화)에서 호출되므로 함수로 뺐다. static inline
+ * 이라 eBPF 에서도 그대로 인라인되어 호출 오버헤드가 없다.
+ *
+ * 반환: 0 = 성공, 그 외 = ringbuf full 등 실패.
+ */
+static inline int push_weight(uint32_t ue_id, uint32_t weight_q16)
+{
+    struct WeightUpdate wu = {
+        .rnti        = (uint16_t)ue_id,   /* host 가 MAC RNTI 로 변환 */
+        .duration_ms = 0,                 /* 영구 */
+        .weight_q16  = weight_q16,
+    };
+    return jbpf_ringbuf_output(&weight_output, &wu, sizeof(wu));
 }
 
 /* ============================================================
@@ -402,28 +439,87 @@ uint64_t jbpf_main(void* state)
         return 0;
     }
 
-    /* ── Step 5: UE 별 상태 lookup-or-create ────────────────── */
+    /* ── Step 5: 정책 결정 ──────────────────────────────────────
+     *
+     * 이게 *programmable interface* 의 핵심 자리. app_type 하나로 가중치가
+     * 결정되므로 상태 맵이 없어도 이 계산은 가능하다 — 의도적으로 맵
+     * 조회보다 앞에 둔다. 아래 Step 6 참조.
+     */
+    uint32_t weight_q16;
+    switch (pkt->app_type) {
+        case APP_TYPE_LLM:    weight_q16 = QOS_WEIGHT_Q16(8); break;
+        case APP_TYPE_VLA:    weight_q16 = QOS_WEIGHT_Q16(4); break;
+        case APP_TYPE_VIDEO:  weight_q16 = QOS_WEIGHT_Q16(2); break;
+        default:              weight_q16 = QOS_WEIGHT_Q16(1); break;
+    }
 
-    /*
-     * HASHMAP 은 ARRAY 와 달리 키가 없으면 NULL 을 돌려주므로,
-     * 처음 보는 UE 는 빈 엔트리를 만들고 다시 lookup 해야 한다.
-     * (update_elem 은 포인터를 돌려주지 않는다.)
+    uint64_t now = jbpf_time_get_ns();
+
+    /* ── Step 6: UE 별 상태 lookup-or-create (best effort) ──────
+     *
+     * HASHMAP 은 키가 없으면 NULL 을 돌려주므로 처음 보는 UE 는 빈
+     * 엔트리를 만들고 다시 lookup 해야 한다 (update_elem 은 포인터를
+     * 돌려주지 않는다).
      */
     uint32_t key = ctx->ue_id;
     struct intent_state *st = jbpf_map_lookup_elem(&intent_state_map, &key);
     if (!st) {
         struct intent_state fresh = {0};
         fresh.ue_id          = ctx->ue_id;
-        fresh.last_report_ns = jbpf_time_get_ns();
-        if (jbpf_map_update_elem(&intent_state_map, &key, &fresh, 0) != 0)
-            return 1;   /* 맵 상한 도달 — 이 UE 의 리포트는 포기 */
+        fresh.last_report_ns = now;
+        jbpf_map_update_elem(&intent_state_map, &key, &fresh, 0);
         st = jbpf_map_lookup_elem(&intent_state_map, &key);
-        if (!st)
-            return 1;
     }
 
-    /*
-     * 파싱된 demand 필드들을 상태에 누적.
+    /* ── Step 7: 열화 모드 — 상태를 못 잡았으면 정책만 발사하고 끝 ───
+     *
+     * key 는 CU-UE-ID 이고 이 값은 *재사용되지 않으므로* UE 가 반복
+     * 접속하면 엔트리가 쌓여 상한(INTENT_STATE_MAX_UE)에 닿는다.
+     * 예전에는 그 순간 return 해서 정책 발사까지 함께 죽었다 —
+     * 재접속 16회 뒤 모든 UE 가 부스트를 못 받는 상태가 됐다.
+     *
+     * 지금은 변화 감지와 통계만 포기하고 정책은 매번 발사한다.
+     * 여기서 반환하므로 아래 코드는 st != NULL 이 보장된다.
+     */
+    if (!st) {
+        push_weight(ctx->ue_id, weight_q16);
+        return 0;
+    }
+
+    /* ── Step 8: QoS weight 정책 발사 ───────────────────────────
+     *
+     * ── 디자인 모델: one-shot 영구 적용 ─────────────────────────
+     * 원래는 매 demand6 마다 TTL 을 갱신하는 heartbeat 모델이었으나,
+     * heartbeat 간격이 TCP send() 빈도와 묶여 TTL 이 짧으면 boost 가
+     * 깜박였다. 지금은 duration_ms = 0 → host 가 "영구"로 해석하고,
+     * 해제는 app_type = BULK/UNKNOWN(1.0x) 또는 RESET 으로 한다.
+     *
+     * ── push 조건 ───────────────────────────────────────────────
+     * host 콜백은 WeightUpdate 하나당 NR_SCHED_LOCK 을 잡고
+     * connected_ue_list 를 순회해 CU-UE-ID → MAC RNTI 를 역조회한다.
+     * LD_PRELOAD shim 은 send()/write() 마다 demand6 를 쏘기 때문에,
+     * 매번 push 하면 non-RT 스레드가 스케줄러 락을 초당 수천 번
+     * 건드리게 되고 그대로 슬롯 지터가 된다. 그래서:
+     *
+     *   (a) 정책이 바뀌었을 때              → push
+     *   (b) WEIGHT_REASSERT_NS 가 지났을 때 → push (자기 치유)
+     *
+     * (b) 가 필요한 이유: host 가 RNTI 매핑에 실패하면 메시지를 버리는데
+     * 코드렛은 그 사실을 알 수 없다. 재확인이 없으면 버려진 정책이
+     * app_type 이 바뀔 때까지 영구히 복구되지 않는다.
+     *
+     * drop(ringbuf full) 시에는 기록을 갱신하지 않는다 → 다음 demand6 가
+     * 즉시 재시도한다.
+     */
+    if (weight_q16 != st->last_weight_q16 ||
+        now - st->last_push_ns >= WEIGHT_REASSERT_NS) {
+        if (push_weight(ctx->ue_id, weight_q16) == 0) {
+            st->last_weight_q16 = weight_q16;
+            st->last_push_ns    = now;
+        }
+    }
+
+    /* ── Step 8.5: 관측용 통계 누적 ─────────────────────────────
      * 모든 네트워크 바이트 오더 필드는 ntohl/ntohs 변환 후 저장.
      */
     st->intent_count++;
@@ -434,74 +530,12 @@ uint64_t jbpf_main(void* state)
     st->deadline_ms         = ntohs_impl(pkt->deadline_ms);
     st->sum_payload_bytes  += st->payload_bytes_last;  /* 윈도우 합계 누적 */
 
-    /* ── Step 5.5: QoS weight 정책 발사 ─────────────────────────
-     *
-     * 이게 *programmable interface* 의 핵심 자리.
-     *
-     * 데이터 파싱은 위에서 끝났고, 여기서 "이 UE에게 어떤 정책을
-     * 적용할 것인가" 를 결정해 host 로 push 한다.
-     *
-     * ── 디자인 모델: one-shot 영구 적용 ─────────────────────────
-     * 원래는 매 demand6 가 도착할 때마다 TTL 을 갱신하는 heartbeat
-     * 모델이었으나, 다음 두 가지 문제가 있었다:
-     *   1. heartbeat 간격이 TCP send() 빈도 (수백 ms) 와 묶이면서
-     *      TTL=20ms 가 너무 짧아 boost 가 *깜박이는* 현상
-     *   2. 사용자의 본래 의도는 "intent 가 한 번 표명되면 codelet
-     *      유지 동안 영구" — packet-by-packet adaptation 이 아니었음
-     *
-     * 새 모델:
-     *   duration_ms = 0 → host 측에서 "영구 (clear_all / 재시작까지
-     *   유지)" 로 해석. heartbeat 빈도와 정책 유효 기간이 *완전히
-     *   분리*. demand6 가 한 번이라도 도착하면 그 정책이 박힌다.
-     *   해제는 app_type = BULK/UNKNOWN (1.0x) 또는 RESET 으로 한다.
-     *
-     * ── 변화가 있을 때만 push 한다 ─────────────────────────────
-     * host 콜백은 WeightUpdate 하나당 NR_SCHED_LOCK 을 잡고
-     * connected_ue_list 를 순회해 CU-UE-ID → MAC RNTI 를 역조회한다.
-     * LD_PRELOAD shim 은 send()/write() 마다 demand6 를 쏘기 때문에,
-     * 매번 push 하면 non-RT 스레드가 스케줄러 락을 초당 수천 번
-     * 건드리게 되고 그대로 슬롯 지터가 된다.
-     *
-     * 정책은 app_type 하나로만 결정되므로 직전 push 값과 비교하면
-     * 충분하다. 결과적으로 push 는 "intent 가 실제로 바뀐 순간"에만
-     * 일어난다 — 정상 상태에서는 0 msg/s.
-     */
-    {
-        uint32_t weight_q16;
-        switch (pkt->app_type) {
-            case APP_TYPE_LLM:    weight_q16 = QOS_WEIGHT_Q16(8); break;
-            case APP_TYPE_VLA:    weight_q16 = QOS_WEIGHT_Q16(4); break;
-            case APP_TYPE_VIDEO:  weight_q16 = QOS_WEIGHT_Q16(2); break;
-            default:              weight_q16 = QOS_WEIGHT_Q16(1); break;
-        }
+    /* ── Step 9: Rate Limiting (5초 경과 여부 확인) ──────────── */
 
-        if (weight_q16 != st->last_weight_q16) {
-            struct WeightUpdate wu = {
-                .rnti        = (uint16_t)ctx->ue_id,  /* host 가 MAC RNTI 로 변환 */
-                .duration_ms = 0,                     /* 영구 */
-                .weight_q16  = weight_q16,
-            };
-
-            /*
-             * jbpf_ringbuf_output(map, data, size):
-             *   ringbuf 한 slot 에 data 를 복사. host consumer 가 가져간다.
-             *
-             * drop 되면 last_weight_q16 을 갱신하지 않는다 → 다음 demand6
-             * 가 같은 정책을 다시 시도한다. 이 재시도 경로가 있어야
-             * ringbuf full 상황에서 정책이 영구히 유실되지 않는다.
-             */
-            if (jbpf_ringbuf_output(&weight_output, &wu, sizeof(wu)) == 0)
-                st->last_weight_q16 = weight_q16;
-        }
-    }
-
-    /* ── Step 6: Rate Limiting (5초 경과 여부 확인) ──────────── */
-
-    uint64_t now = jbpf_time_get_ns();
     if (now - st->last_report_ns < REPORT_INTERVAL_NS)
         return 0;  /* 아직 5초 안 됨 */
 
-    /* ── Step 7: IntentReport 빌드 및 ringbuf 출력 ───────────── */
+    /* ── Step 10: IntentReport 빌드 및 ringbuf 출력 ──────────── */
 
     struct IntentReport report = {
         .timestamp_ns       = now,
