@@ -1,0 +1,16 @@
+# vendored 스냅샷 — 업스트림 파일을 그대로 보존하기 위한 설정.
+#
+# -text: 줄바꿈 변환(CRLF↔LF) 금지. git add 시 elfio 문서 등에서
+#        "CRLF will be replaced by LF" 경고가 났다.
+#
+# 주의 — 이 규칙이 트리 전체에 적용되지는 않는다. git attribute 는
+# *더 깊은 경로의 .gitattributes 가 이긴다*. 아래 파일들이 자체적으로
+# text=auto 를 설정하므로 그 하위에서는 여전히 정규화가 일어난다:
+#   3p/mimalloc/.gitattributes
+#   3p/ebpf-verifier/external/Catch2/.gitattributes
+#   3p/{ubpf/external,ebpf-verifier/external}/bpf_conformance/.gitattributes
+#
+# 실제 영향 범위를 확인한 결과: 98개 파일 (96 × elfio 문서용 .svg,
+# 2 × .clang-format). **빌드에 쓰이는 파일은 0개**이므로 그대로 둔다.
+# 업스트림 .gitattributes 를 고쳐가며 바이트 동일성을 맞출 가치는 없다.
+* -text
