@@ -11,24 +11,9 @@
 #include "jbpf_defs.h"
 #include "jbpf_helper.h"
 
-/* Context 구조체 (mac_scheduler_hooks.h와 동일) */
-struct mac_ul_prb_alloc_ctx {
-    uint64_t data;
-    uint64_t data_end;
-    uint64_t meta_data;
-    uint16_t rnti;
-    uint16_t frame;
-    uint8_t  slot;
-    uint16_t rb_start;
-    uint16_t rb_size;
-    uint8_t  mcs;
-    uint32_t tb_size;
-    int32_t  buffer_bytes;
-    int32_t  sched_ul_bytes;
-    uint8_t  harq_pid;
-    uint8_t  is_retx;
-    uint8_t  _pad[2];
-};
+/* Hook context 정의는 ../mac_scheduler_hooks.h 에 있다 (gNB 쪽과 공유).
+ * 재정의하면 양쪽 레이아웃이 어긋나며 silent corruption 이 난다. */
+#include "mac_scheduler_hooks.h"
 
 /*
  * UL PRB 보고 구조체

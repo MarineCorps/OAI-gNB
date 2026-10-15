@@ -1,15 +1,33 @@
-# JBPF Codelet Makefile
-# eBPF 프로그램을 clang으로 컴파일
+# JBPF Codelet Makefile — eBPF 프로그램을 clang 으로 컴파일
+#
+# 사용:
+#   make              모든 코드렛 빌드
+#   make DEBUG=1      jbpf_printf_debug() 출력 활성화 (아래 주의사항 참조)
+#   make <name>.o     하나만 빌드
+#   make clean        .o 삭제
+#   make list         빌드 대상 목록 확인
+#
+# 보통은 직접 호출하지 않고 ~/codelet.sh build 를 쓴다.
 
-CLANG := clang-14
+CLANG      := clang-14
 LLVM_STRIP := llvm-strip-14
 
 # eBPF 컴파일 플래그
+#
+# Include path:
+#   -I../..  : openair2/          (구 codelet 들이 쓰던 경로)
+#   -I..     : openair2/JBPF/     — 공유 헤더 위치.
+#              qos_weight_msg.h (wire format), pdcp_hook_ctx.h /
+#              mac_scheduler_hooks.h (hook context) 를 짧은 경로로 가져온다.
+#              이 헤더들은 gNB 쪽과 *같은 파일*이어야 한다 — 양쪽이 따로
+#              정의를 들고 있으면 필드 오프셋이 어긋나며 silent corruption.
+#              CMakeLists.txt 의 -I${SRC}/openair2/JBPF 와 동일한 의미.
 CFLAGS := -target bpf \
           -O2 \
           -g \
           -D__x86_64__ \
           -I../.. \
+          -I.. \
           -I/usr/local/include \
           -I/usr/include/x86_64-linux-gnu \
           -Wall \
@@ -17,46 +35,56 @@ CFLAGS := -target bpf \
           -Wno-pointer-sign \
           -Wno-compare-distinct-pointer-types
 
-# Codelet 소스 파일
-# ──────────────────────────────────────────────────────────────
-# 기존 SDAP/PDCP 계층 codelets:
-#   sdap_packet_stats  : UL 패킷 통계 (hook: sdap_uplink)
-#   sdap_qfi_classifier: QFI 기반 트래픽 분류 (hook: sdap_uplink)
-#   header_parser      : IP/TCP/UDP 헤더 파싱 (hook: pdcp_uplink)
+# ── 코드렛 디버그 출력 (DEBUG=1) ──────────────────────────────────
 #
-# 신규 MAC 스케줄러 codelets:
-#   mac_dl_prb_stats   : DL PRB 점유율 (hook: mac_dl_prb_alloc)
-#   mac_ul_prb_stats   : UL PRB 점유율 (hook: mac_ul_prb_alloc)
-#   mac_bsr_monitor    : BSR 수신 모니터링 (hook: mac_bsr_event)
-#   mac_sr_monitor     : SR 감지 모니터링 (hook: mac_sr_detect)
-# ──────────────────────────────────────────────────────────────
-CODELETS := sdap_packet_stats sdap_qfi_classifier header_parser \
-            mac_dl_prb_stats mac_ul_prb_stats mac_bsr_monitor mac_sr_monitor
-OBJS := $(addsuffix .o, $(CODELETS))
+# 코드렛 소스의 #define USE_JBPF_PRINTF_HELPER 는 *코드렛 자신의* 디버그
+# 블록을 여는 로컬 플래그다. 그런데 jbpf_printf_debug() 매크로 자체는
+# jbpf_helper.h:266 에서 JBPF_DEBUG_ENABLED 로 게이트되어 있고, 이 매크로가
+# 없으면 ((void)0) 으로 치환된다.
+#
+# 즉 JBPF_DEBUG_ENABLED 없이 빌드하면 코드렛의 jbpf_printf_debug() 출력은
+# 전부 사라진다 (header_parser.c 의 'unused variable s/d' 경고가 그 증거다).
+#
+# 기본값을 off 로 두는 이유:
+#   jbpf_printf 는 fast path 에 쓰지 말라고 공식 문서에 명시돼 있다.
+#   header_parser 는 *모든* UL 패킷마다 돌면서 printf 를 6번 호출하므로
+#   항상 켜두면 PDCP 스레드에 그대로 비용이 얹힌다.
+#
+# 주의: jbpf_printf_debug 는 인자를 최대 3개까지만 받는다. header_parser 의
+#       IP 주소 출력처럼 12개를 넘기는 호출은 DEBUG=1 로도 제대로 찍히지
+#       않는다 (별도 수정 필요).
+ifeq ($(DEBUG),1)
+CFLAGS += -DJBPF_DEBUG_ENABLED
+endif
 
-# 로컬 개발 경로 (설치 불필요)
-LOCAL_DIR := $(shell pwd)
+# 빌드 대상은 codelets.list 에서 읽는다 (CMakeLists.txt 와 공유).
+# sed: 인라인 주석(#...) 제거 → 전체 주석/빈 줄 제거 → 공백 정리
+CODELETS := $(shell sed -e 's/#.*//' -e 's/[[:space:]]*$$//' codelets.list | grep -v '^$$')
+OBJS     := $(addsuffix .o, $(CODELETS))
 
-.PHONY: all clean install
+.PHONY: all clean list install
 
 all: $(OBJS)
-	@echo "Build complete! Codelets are ready in $(LOCAL_DIR)"
-	@ls -lh *.o
+	@echo "──────────────────────────────────────────────"
+	@echo "코드렛 $(words $(OBJS))개 빌드 완료:"
+	@ls -1 $(OBJS) | sed 's/^/  /'
 
 %.o: %.c
-	@echo "Compiling eBPF codelet: $<"
-	$(CLANG) $(CFLAGS) -c $< -o $@
-	$(LLVM_STRIP) -g $@
-	@echo "  → $@ created"
+	@echo "  CLANG   $<"
+	@$(CLANG) $(CFLAGS) -c $< -o $@
+	@$(LLVM_STRIP) -g $@
 
-# Optional: 시스템 경로에 설치 (운영 환경용)
+list:
+	@echo "codelets.list 의 빌드 대상 $(words $(CODELETS))개:"
+	@for c in $(CODELETS); do echo "  $$c"; done
+
+# 운영 환경용. 로컬 개발에서는 YAML 이 절대 경로를 가리키므로 불필요.
 install: all
-	@echo "Installing codelets to /usr/local/share/oai/jbpf/..."
 	sudo mkdir -p /usr/local/share/oai/jbpf/codelets
 	sudo cp $(OBJS) /usr/local/share/oai/jbpf/codelets/
-	sudo cp oai_gnb_monitoring.yaml /usr/local/share/oai/jbpf/
-	@echo "Installation complete!"
+	sudo cp *.yaml  /usr/local/share/oai/jbpf/
+	@echo "설치 완료: /usr/local/share/oai/jbpf/"
 
 clean:
 	rm -f $(OBJS)
-	@echo "Clean complete"
+	@echo "clean 완료"

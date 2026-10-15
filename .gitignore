@@ -28,3 +28,11 @@ CMakeUserPresets.json
 *.o
 *.so
 *.a
+
+# jbpf (vendored, third_party/jbpf) 빌드 산출물.
+# 소스는 저장소에 포함되지만 빌드/설치 결과물은 재생성 가능하므로 제외한다.
+#   build/ = CMake 빌드 디렉터리 (94M, 절대 경로가 박힌 캐시 포함)
+#   out/   = make install 결과 — libjbpf.so, jbpf_lcm_cli, inc/ (25M)
+# 클론 후 빌드 방법은 third_party/jbpf/UPSTREAM.md 참조.
+third_party/jbpf/build/
+third_party/jbpf/out/

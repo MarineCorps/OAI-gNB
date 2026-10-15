@@ -164,6 +164,9 @@ DEFINE_JBPF_HOOK(mac_bsr_event)
 
 #endif /* JBPF_HOOK */
 
+/* Phase 1 QoS weight table — independent of JBPF_HOOK (returns 1.0 if unused) */
+#include "JBPF/qos_weight.h"
+
 //#define SRS_IND_DEBUG
 
 /* \brief Get the number of UL TDAs that could be used in slot, reachable
@@ -2139,10 +2142,14 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
 }
 
 typedef struct UEsched_s {
-  float coef;
+  /*스케줄링 우선순위를 나타내는 metric PF 스케줄러에서 
+  이 값이 계산(UE의 스루풋과 예상 전송량 기반)되어 높은 UE가 먼저 스케줄링됨*/
+  float coef; 
+
+  /*현재 TTI(또는 슬롯)에서 해당 단말을 스케줄링 대상에서 제외해야되는지(비활성화)*/
   bool sched_inactive;
   NR_UE_info_t * UE;
-  int selected_mcs;
+  int selected_mcs; // CQI, SINR에 기반하여 MCS 값 저장
 } UEsched_t;
 
 static int comparator(const void *p, const void *q)
@@ -2206,9 +2213,11 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
 
     /* Calculate throughput */
     const float a = 0.01f;
-    const uint32_t b = stats->current_bytes;
-    UE->ul_thr_ue = (1 - a) * UE->ul_thr_ue + a * b;
+    const uint32_t b = stats->current_bytes; // 직전 스케줄링에서의 실제 전송량 (바이트 단위)
+    UE->ul_thr_ue = (1 - a) * UE->ul_thr_ue + a * b; // 지수 가중 이동 평균을 사용하여 UE의 UL 스루풋 계산
 
+    /* ul_thr_ue는 UE가 최근에 평균적으로 얼마나 많이 전송했는지를 나타냄 -> PF 스케줄링의 분모가 됨
+    많이 전송한 UE일수록 높아져서 분모가 커짐 즉, 점수가 낮아짐 */
     stats->current_bytes = 0;
     stats->current_rbs = 0;
 
@@ -2275,6 +2284,8 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
     }
 
     const int B = max(0, sched_ctrl->estimated_ul_buffer - sched_ctrl->sched_ul_bytes);
+    
+    /*B는 아직 안 보낸 UL 버퍼 추정량 estimated_ul_buffer */
     /* preprocessor computed sched_frame/sched_slot */
     const bool do_sched = nr_UE_is_to_be_scheduled(&nrmac->frame_structure,
                                                    UE,
@@ -2288,6 +2299,7 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
       reset_beam_status(&nrmac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, dci_beam.new_beam);
       continue;
     }
+
 
     const NR_bler_options_t *bo = &nrmac->ul_bler;
     const int max_mcs_table = (current_BWP->mcs_table == 0 || current_BWP->mcs_table == 2) ? 28 : 27;
@@ -2317,7 +2329,8 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
                                         0 /* tb_scaling */,
                                         nrOfLayers)
                          >> 3;
-    float coeff_ue = (float) tbs / UE->ul_thr_ue;
+    float coeff_ue = (float) tbs / UE->ul_thr_ue; /* PF 점수 tbs/ul_thr_ue -> 여기에다 QoS 가중치를 곱하는거로 구현*/
+    coeff_ue *= qos_weight_lookup(UE->rnti);   /* Phase 1: QoS-aware boost (1.0 = no policy) */
     bool sched_inactive = B == 0 && do_sched;
     LOG_D(NR_MAC, "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, tbs %d, coeff_ue %f, sched_inactive %d\n",
           UE->rnti,
@@ -2328,7 +2341,7 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
           tbs,
           coeff_ue,
           sched_inactive);
-    UE_sched[numUE].coef = coeff_ue;
+    UE_sched[numUE].coef = coeff_ue;  /*PF점수*/
     UE_sched[numUE].sched_inactive = sched_inactive;
     UE_sched[numUE].UE = UE;
     UE_sched[numUE].selected_mcs = selected_mcs;

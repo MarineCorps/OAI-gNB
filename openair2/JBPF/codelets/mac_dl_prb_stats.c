@@ -16,27 +16,9 @@
 #include "jbpf_defs.h"
 #include "jbpf_helper.h"
 
-/*
- * Context 구조체 (mac_scheduler_hooks.h와 동일해야 함)
- *
- * 중요: 이 구조체는 gNB 측 hook 정의와 필드 순서, 타입, 크기가
- * 정확히 일치해야 한다. 불일치 시 잘못된 값을 읽게 된다.
- */
-struct mac_dl_prb_alloc_ctx {
-    uint64_t data;       /* 항상 0 */
-    uint64_t data_end;   /* 항상 0 */
-    uint64_t meta_data;  /* CPU 타임스탬프 */
-    uint16_t rnti;       /* UE RNTI */
-    uint16_t frame;      /* 프레임 번호 */
-    uint8_t  slot;       /* 슬롯 번호 */
-    uint16_t rb_start;   /* 시작 PRB */
-    uint16_t rb_size;    /* 할당 PRB 수 */
-    uint8_t  mcs;        /* MCS 인덱스 */
-    uint32_t tb_size;    /* 전송 블록 크기 */
-    uint8_t  harq_pid;   /* HARQ 프로세스 ID */
-    uint8_t  is_retx;    /* 0=신규, 1=재전송 */
-    uint8_t  _pad[2];
-};
+/* Hook context 정의는 ../mac_scheduler_hooks.h 에 있다 (gNB 쪽과 공유).
+ * 재정의하면 양쪽 레이아웃이 어긋나며 silent corruption 이 난다. */
+#include "mac_scheduler_hooks.h"
 
 /*
  * 출력 데이터 구조체

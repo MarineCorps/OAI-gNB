@@ -43,6 +43,9 @@
 #include "executables/softmodem-common.h"
 #include "../../../nfapi/oai_integration/vendor_ext.h"
 
+/* Phase 1 QoS weight table — independent of JBPF_HOOK (returns 1.0 if unused) */
+#include "JBPF/qos_weight.h"
+
 /*
  * ──────────────────────────────────────────────────────────────
  * JBPF Hook: mac_dl_prb_alloc
@@ -850,6 +853,7 @@ static void pf_dl(gNB_MAC_INST *mac,
                                     0 /* tb_scaling */,
                                     l) >> 3;
       float coeff_ue = (float) tbs / UE->dl_thr_ue;
+      coeff_ue *= qos_weight_lookup(UE->rnti);   /* Phase 1: DL QoS-aware boost (1.0 = PF default) */
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] b %d, thr_ue %f, tbs %d, coeff_ue %f\n",
             UE->rnti,
             frame,
